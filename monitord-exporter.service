@@ -1,0 +1,16 @@
+[Unit]
+Description=monitord-exporter ... Tell prometheus how your systemd is!
+After=network.target
+
+[Service]
+User=nobody
+Group=daemon
+Type=simple
+ExecStart=/usr/local/bin/monitord-exporter
+Restart=on-failure
+RestartSec=1
+# Allow binding to ports <= 1024
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
