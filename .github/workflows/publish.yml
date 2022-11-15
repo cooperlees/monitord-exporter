@@ -1,0 +1,33 @@
+name: Crate Publish
+
+on:
+  release:
+    types: created
+
+jobs:
+  publish:
+    name: crates.io publish ${{matrix.os}}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v3.1.0
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Installing libdbus
+        run: |
+          sudo apt update
+          sudo apt install libdbus-1-dev pkg-config
+
+      - name: Cargo Publish
+        uses: actions-rs/cargo@v1
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        with:
+          command: publish
+          args: --verbose
