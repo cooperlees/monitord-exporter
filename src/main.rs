@@ -77,11 +77,14 @@ fn main() -> Result<()> {
         match monitord::networkd::parse_interface_state_files(
             args.networkd_state_file_path.clone(),
             None,
+            &args.dbus_address,
         ) {
             Ok(networkd_stats) => monitord_stats.networkd = networkd_stats,
             Err(err) => error!("networkd stats failed: {}", err),
         }
-        match monitord::units::parse_unit_state(Some(args.dbus_address.clone())) {
+        // TOOD: Support service to pull stats on
+        let services_to_get_stats_on = Vec::from([]);
+        match monitord::units::parse_unit_state(&args.dbus_address, services_to_get_stats_on) {
             Ok(units_stats) => monitord_stats.units = units_stats,
             Err(err) => error!("units stats failed: {}", err),
         }
