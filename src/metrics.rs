@@ -1,5 +1,5 @@
-use log::debug;
 use prometheus_exporter::{self, prometheus::register_gauge_vec, prometheus::GaugeVec};
+use tracing::debug;
 
 #[derive(Debug)]
 struct NetworkdInterfaceStats {
