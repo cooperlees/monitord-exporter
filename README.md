@@ -23,6 +23,12 @@ Options:
 
           [default: unix:path=/run/dbus/system_bus_socket]
 
+  -l, --log-level <LOG_LEVEL>
+          Adjust the console log-level
+
+          [default: Info]
+          [possible values: error, warn, info, debug, trace]
+
   -n, --networkd-state-file-path <NETWORKD_STATE_FILE_PATH>
           network netif dir
 
@@ -33,17 +39,11 @@ Options:
 
           [default: 1]
 
-  -v, --verbose...
-          More output per occurrence
-
-  -q, --quiet...
-          Less output per occurrence
-
   -h, --help
-          Print help information (use `-h` for a summary)
+          Print help (see a summary with '-h')
 
   -V, --version
-          Print version information
+          Print version
 ```
 
 ## Example Output
@@ -166,8 +166,8 @@ monitord_units_total_units 584
 
 To do test runs (requires `systemd` and optionally `systemd-networkd` *installed*)
 
-- `cargo run -- -p 1234 -v`
-  - `-v` for debug logging
+- `cargo run -- -p 1234 -l debug`
+  - `-l` for logging level. Recommend debug when developing
   - `-p` > 1024 to run as non root / with capabilities
 
 Ensure the following pass before submitting a PR (CI checks):
