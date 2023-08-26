@@ -19,6 +19,26 @@ struct NetworkdStats {
 }
 
 #[derive(Debug)]
+struct ServiceStats {
+    active_enter_timestamp: GaugeVec,
+    active_exit_timestamp: GaugeVec,
+    cpuuage_nsec: GaugeVec,
+    inactive_exit_timestamp: GaugeVec,
+    ioread_bytes: GaugeVec,
+    ioread_operations: GaugeVec,
+    memory_available: GaugeVec,
+    memory_current: GaugeVec,
+    nrestarts: GaugeVec,
+    processes: GaugeVec,
+    restart_usec: GaugeVec,
+    state_change_timestamp: GaugeVec,
+    status_errno: GaugeVec,
+    tasks_current: GaugeVec,
+    timeout_clean_usec: GaugeVec,
+    watchdog_usec: GaugeVec,
+}
+
+#[derive(Debug)]
 struct UnitStats {
     active_units: GaugeVec,
     automount_units: GaugeVec,
@@ -43,6 +63,7 @@ struct UnitStats {
 #[derive(Debug)]
 pub struct MonitordPromStats {
     networkd: NetworkdStats,
+    services: Vec<ServiceStats>,
     units: UnitStats,
 }
 
@@ -97,6 +118,110 @@ impl NetworkdStats {
                 "monitord_networkd_managed_interfaces",
                 "Count of interfaces networkd manages",
                 &[],
+            )
+            .unwrap(),
+        }
+    }
+}
+
+impl ServiceStats {
+    pub fn new(service: &str) -> ServiceStats {
+        let labels = &["service_name", service];
+        ServiceStats {
+            active_enter_timestamp: register_gauge_vec!(
+                "monitord_service_active_enter_timestamp",
+                "Active enter timestamp",
+                labels,
+            )
+            .unwrap(),
+            active_exit_timestamp: register_gauge_vec!(
+                "monitord_service_active_exit_timestamp",
+                "Active exti timestamp",
+                labels,
+            )
+            .unwrap(),
+            cpuuage_nsec: register_gauge_vec!(
+                "monitord_service_cpuuage_nsec",
+                "CPU usage nano seconds",
+                labels,
+            )
+            .unwrap(),
+            inactive_exit_timestamp: register_gauge_vec!(
+                "monitord_service_inactive_exit_timestamp",
+                "Inactive exit timestamp",
+                labels,
+            )
+            .unwrap(),
+            ioread_bytes: register_gauge_vec!(
+                "monitord_service_ioread_bytes",
+                "IO bytes read",
+                labels,
+            )
+            .unwrap(),
+            ioread_operations: register_gauge_vec!(
+                "monitord_service_ioread_operations",
+                "IO Opertations",
+                labels,
+            )
+            .unwrap(),
+            memory_available: register_gauge_vec!(
+                "monitord_service_memory_available",
+                "Memory available",
+                labels,
+            )
+            .unwrap(),
+            memory_current: register_gauge_vec!(
+                "monitord_service_memory_current",
+                "Memory currently in use",
+                labels,
+            )
+            .unwrap(),
+            nrestarts: register_gauge_vec!(
+                "monitord_service_nrestarts",
+                "Count of automatic restarts of the service",
+                labels,
+            )
+            .unwrap(),
+            processes: register_gauge_vec!(
+                "monitord_service_processes",
+                "Count of processes",
+                labels,
+            )
+            .unwrap(),
+            restart_usec: register_gauge_vec!(
+                "monitord_service_restart_usec",
+                "Restart time in usecs",
+                labels,
+            )
+            .unwrap(),
+            state_change_timestamp: register_gauge_vec!(
+                "monitord_service_state_chage_timestamp",
+                "Last unit state change timestamp",
+                labels,
+            )
+            .unwrap(),
+            status_errno: register_gauge_vec!(
+                "monitord_service_status_errno",
+                "Status error number",
+                labels,
+            )
+            .unwrap(),
+            tasks_current: register_gauge_vec!(
+                "monitord_service_tasks_current",
+                "Tasks current (processes + threads)",
+                labels,
+            )
+            .unwrap(),
+            timeout_clean_usec: register_gauge_vec!(
+                "monitord_service_timeout_clean_usec",
+                "Clean timeout usecs",
+                labels,
+            )
+            .unwrap(),
+            watchdog_usec: register_gauge_vec!(
+                "monitord_service_watchdog_usec",
+                "Watchdog runtime usecs",
+                labels,
             )
             .unwrap(),
         }
@@ -223,6 +348,7 @@ impl MonitordPromStats {
     pub fn new() -> MonitordPromStats {
         MonitordPromStats {
             networkd: NetworkdStats::new(),
+            services: Vec::new(),
             units: UnitStats::new(),
         }
     }
@@ -277,6 +403,78 @@ impl MonitordPromStats {
                 .with_label_values(labels)
                 .set((interface.required_for_online as i64) as f64);
         }
+
+        // Set services stats
+        let mut current_service_stats = Vec::new();
+        for (service_name, service_stats) in monitord_stats.units.service_stats.iter() {
+            let service_prom_stats = ServiceStats::new(service_name);
+            service_prom_stats
+                .active_enter_timestamp
+                .with_label_values(no_labels)
+                .set((service_stats.active_enter_timestamp as i64) as f64);
+            service_prom_stats
+                .active_exit_timestamp
+                .with_label_values(no_labels)
+                .set((service_stats.active_exit_timestamp as i64) as f64);
+            service_prom_stats
+                .cpuuage_nsec
+                .with_label_values(no_labels)
+                .set((service_stats.cpuusage_nsec as i64) as f64);
+            service_prom_stats
+                .inactive_exit_timestamp
+                .with_label_values(no_labels)
+                .set((service_stats.inactive_exit_timestamp as i64) as f64);
+            service_prom_stats
+                .ioread_bytes
+                .with_label_values(no_labels)
+                .set((service_stats.ioread_bytes as i64) as f64);
+            service_prom_stats
+                .ioread_operations
+                .with_label_values(no_labels)
+                .set((service_stats.ioread_operations as i64) as f64);
+            service_prom_stats
+                .memory_available
+                .with_label_values(no_labels)
+                .set((service_stats.memory_available as i64) as f64);
+            service_prom_stats
+                .memory_current
+                .with_label_values(no_labels)
+                .set((service_stats.memory_current as i64) as f64);
+            service_prom_stats
+                .nrestarts
+                .with_label_values(no_labels)
+                .set((service_stats.nrestarts as i64) as f64);
+            service_prom_stats
+                .processes
+                .with_label_values(no_labels)
+                .set((service_stats.processes as i64) as f64);
+            service_prom_stats
+                .restart_usec
+                .with_label_values(no_labels)
+                .set((service_stats.restart_usec as i64) as f64);
+            service_prom_stats
+                .state_change_timestamp
+                .with_label_values(no_labels)
+                .set((service_stats.state_change_timestamp as i64) as f64);
+            service_prom_stats
+                .status_errno
+                .with_label_values(no_labels)
+                .set((service_stats.status_errno as i64) as f64);
+            service_prom_stats
+                .tasks_current
+                .with_label_values(no_labels)
+                .set((service_stats.tasks_current as i64) as f64);
+            service_prom_stats
+                .timeout_clean_usec
+                .with_label_values(no_labels)
+                .set((service_stats.timeout_clean_usec as i64) as f64);
+            service_prom_stats
+                .watchdog_usec
+                .with_label_values(no_labels)
+                .set((service_stats.watchdog_usec as i64) as f64);
+            current_service_stats.push(service_prom_stats);
+        }
+        self.services = current_service_stats;
 
         // Set all the unit stats
         self.units
@@ -351,5 +549,11 @@ impl MonitordPromStats {
             .total_units
             .with_label_values(no_labels)
             .set(monitord_stats.units.total_units as f64);
+    }
+}
+
+impl Default for MonitordPromStats {
+    fn default() -> Self {
+        Self::new()
     }
 }
