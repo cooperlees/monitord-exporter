@@ -30,6 +30,9 @@ struct Cli {
     /// TCP Port to listen on
     #[clap(short, long, value_parser, default_value_t = 1)]
     port: u16,
+    /// Services to get service stats for
+    #[clap(short, long)]
+    services: Vec<String>,
 }
 
 /// Signal handler to exit cleanly
@@ -78,9 +81,9 @@ fn main() -> Result<()> {
             Ok(networkd_stats) => monitord_stats.networkd = networkd_stats,
             Err(err) => error!("networkd stats failed: {}", err),
         }
-        // TOOD: Support service to pull stats on
-        let services_to_get_stats_on = Vec::from([]);
-        match monitord::units::parse_unit_state(&args.dbus_address, services_to_get_stats_on) {
+        // TODO: See if we can supply services in the prometheus scrape as params
+        match monitord::units::parse_unit_state(&args.dbus_address, args.services.iter().collect())
+        {
             Ok(units_stats) => monitord_stats.units = units_stats,
             Err(err) => error!("units stats failed: {}", err),
         }
