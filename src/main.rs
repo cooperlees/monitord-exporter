@@ -3,6 +3,7 @@ use std::thread;
 
 use anyhow::Result;
 use clap::Parser;
+use indexmap::IndexMap;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
@@ -82,8 +83,14 @@ fn main() -> Result<()> {
             Err(err) => error!("networkd stats failed: {}", err),
         }
         // TODO: See if we can supply services in the prometheus scrape as params
-        match monitord::units::parse_unit_state(&args.dbus_address, args.services.iter().collect())
-        {
+        let mut monitord_config: IndexMap<String, IndexMap<String, Option<String>>> =
+            IndexMap::new();
+        monitord_config.insert(String::from("services"), IndexMap::new());
+        monitord_config.insert(String::from("units"), IndexMap::new());
+        for service in &args.services {
+            monitord_config["services"].insert(service.clone(), None);
+        }
+        match monitord::units::parse_unit_state(&args.dbus_address, monitord_config) {
             Ok(units_stats) => monitord_stats.units = units_stats,
             Err(err) => error!("units stats failed: {}", err),
         }

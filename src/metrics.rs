@@ -63,7 +63,7 @@ struct UnitStats {
 #[derive(Debug)]
 pub struct MonitordPromStats {
     networkd: NetworkdStats,
-    services: Vec<ServiceStats>,
+    services: ServiceStats,
     units: UnitStats,
 }
 
@@ -125,8 +125,8 @@ impl NetworkdStats {
 }
 
 impl ServiceStats {
-    pub fn new(service: &str) -> ServiceStats {
-        let labels = &["service_name", service];
+    pub fn new() -> ServiceStats {
+        let labels = &["service_name"];
         ServiceStats {
             active_enter_timestamp: register_gauge_vec!(
                 "monitord_service_active_enter_timestamp",
@@ -348,7 +348,7 @@ impl MonitordPromStats {
     pub fn new() -> MonitordPromStats {
         MonitordPromStats {
             networkd: NetworkdStats::new(),
-            services: Vec::new(),
+            services: ServiceStats::new(),
             units: UnitStats::new(),
         }
     }
@@ -405,76 +405,73 @@ impl MonitordPromStats {
         }
 
         // Set services stats
-        let mut current_service_stats = Vec::new();
         for (service_name, service_stats) in monitord_stats.units.service_stats.iter() {
-            let service_prom_stats = ServiceStats::new(service_name);
-            service_prom_stats
+            let service_labels = &[service_name.as_str()];
+            self.services
                 .active_enter_timestamp
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.active_enter_timestamp as i64) as f64);
-            service_prom_stats
+            self.services
                 .active_exit_timestamp
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.active_exit_timestamp as i64) as f64);
-            service_prom_stats
+            self.services
                 .cpuuage_nsec
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.cpuusage_nsec as i64) as f64);
-            service_prom_stats
+            self.services
                 .inactive_exit_timestamp
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.inactive_exit_timestamp as i64) as f64);
-            service_prom_stats
+            self.services
                 .ioread_bytes
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.ioread_bytes as i64) as f64);
-            service_prom_stats
+            self.services
                 .ioread_operations
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.ioread_operations as i64) as f64);
-            service_prom_stats
+            self.services
                 .memory_available
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.memory_available as i64) as f64);
-            service_prom_stats
+            self.services
                 .memory_current
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.memory_current as i64) as f64);
-            service_prom_stats
+            self.services
                 .nrestarts
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.nrestarts as i64) as f64);
-            service_prom_stats
+            self.services
                 .processes
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.processes as i64) as f64);
-            service_prom_stats
+            self.services
                 .restart_usec
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.restart_usec as i64) as f64);
-            service_prom_stats
+            self.services
                 .state_change_timestamp
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.state_change_timestamp as i64) as f64);
-            service_prom_stats
+            self.services
                 .status_errno
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.status_errno as i64) as f64);
-            service_prom_stats
+            self.services
                 .tasks_current
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.tasks_current as i64) as f64);
-            service_prom_stats
+            self.services
                 .timeout_clean_usec
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.timeout_clean_usec as i64) as f64);
-            service_prom_stats
+            self.services
                 .watchdog_usec
-                .with_label_values(no_labels)
+                .with_label_values(service_labels)
                 .set((service_stats.watchdog_usec as i64) as f64);
-            current_service_stats.push(service_prom_stats);
         }
-        self.services = current_service_stats;
 
         // Set all the unit stats
         self.units
