@@ -82,6 +82,16 @@ fn main() -> Result<()> {
             Ok(networkd_stats) => monitord_stats.networkd = networkd_stats,
             Err(err) => error!("networkd stats failed: {}", err),
         }
+
+        // Collect PID1 stats
+        monitord_stats.pid1 = match monitord::pid1::get_pid1_stats() {
+            Ok(p1s) => Some(p1s),
+            Err(err) => {
+                error!("Failed to get PID1 stats: {err:#?}");
+                None
+            }
+        };
+
         // TODO: See if we can supply services in the prometheus scrape as params
         let mut monitord_config: IndexMap<String, IndexMap<String, Option<String>>> =
             IndexMap::new();

@@ -19,6 +19,15 @@ struct NetworkdStats {
 }
 
 #[derive(Debug)]
+struct Pid1Stats {
+    pid1_cpu_time_kernel: GaugeVec,
+    pid1_cpu_user_kernel: GaugeVec,
+    pid1_fd_count: GaugeVec,
+    pid1_memeory_usage_bytes: GaugeVec,
+    pid1_tasks: GaugeVec,
+}
+
+#[derive(Debug)]
 struct ServiceStats {
     active_enter_timestamp: GaugeVec,
     active_exit_timestamp: GaugeVec,
@@ -63,6 +72,7 @@ struct UnitStats {
 #[derive(Debug)]
 pub struct MonitordPromStats {
     networkd: NetworkdStats,
+    pid1: Pid1Stats,
     services: ServiceStats,
     units: UnitStats,
 }
@@ -117,6 +127,43 @@ impl NetworkdStats {
             managed_interfaces: register_gauge_vec!(
                 "monitord_networkd_managed_interfaces",
                 "Count of interfaces networkd manages",
+                &[],
+            )
+            .unwrap(),
+        }
+    }
+}
+
+impl Pid1Stats {
+    pub fn new() -> Pid1Stats {
+        Pid1Stats {
+            pid1_cpu_time_kernel: register_gauge_vec!(
+                "monitord_pid1_cpu_time_kernel",
+                "CPU time used by PID1",
+                &[],
+            )
+            .unwrap(),
+            pid1_cpu_user_kernel: register_gauge_vec!(
+                "monitord_pid1_cpu_user_kernel",
+                "CPU user space time used by PID1",
+                &[],
+            )
+            .unwrap(),
+            pid1_fd_count: register_gauge_vec!(
+                "monitord_pid1_fd_count",
+                "Open file descriptors for PID1",
+                &[],
+            )
+            .unwrap(),
+            pid1_memeory_usage_bytes: register_gauge_vec!(
+                "monitord_pid1_memory_usage_bytes",
+                "Memory usage in bytes for PID1",
+                &[],
+            )
+            .unwrap(),
+            pid1_tasks: register_gauge_vec!(
+                "monitord_pid1_tasks",
+                "Processes / threads of PID1",
                 &[],
             )
             .unwrap(),
@@ -348,6 +395,7 @@ impl MonitordPromStats {
     pub fn new() -> MonitordPromStats {
         MonitordPromStats {
             networkd: NetworkdStats::new(),
+            pid1: Pid1Stats::new(),
             services: ServiceStats::new(),
             units: UnitStats::new(),
         }
@@ -402,6 +450,30 @@ impl MonitordPromStats {
                 .required_for_online
                 .with_label_values(labels)
                 .set((interface.required_for_online as i64) as f64);
+        }
+
+        // Set pid1 stats
+        if let Some(p1s) = &monitord_stats.pid1 {
+            self.pid1
+                .pid1_cpu_time_kernel
+                .with_label_values(no_labels)
+                .set(p1s.cpu_time_kernel as f64);
+            self.pid1
+                .pid1_cpu_user_kernel
+                .with_label_values(no_labels)
+                .set(p1s.cpu_time_user as f64);
+            self.pid1
+                .pid1_fd_count
+                .with_label_values(no_labels)
+                .set(p1s.fd_count as f64);
+            self.pid1
+                .pid1_memeory_usage_bytes
+                .with_label_values(no_labels)
+                .set(p1s.memory_usage_bytes as f64);
+            self.pid1
+                .pid1_tasks
+                .with_label_values(no_labels)
+                .set(p1s.tasks as f64);
         }
 
         // Set services stats
