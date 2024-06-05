@@ -104,6 +104,16 @@ fn main() -> Result<()> {
             Ok(units_stats) => monitord_stats.units = units_stats,
             Err(err) => error!("units stats failed: {}", err),
         }
+
+        // Collect system state
+        monitord_stats.system_state = match monitord::system::get_system_state(&args.dbus_address) {
+            Ok(ss) => ss,
+            Err(err) => {
+                error!("Failed to get system state: {err:#?}");
+                monitord::system::SystemdSystemState::unknown
+            }
+        };
+
         debug!("Stats collected: {:?}", monitord_stats);
 
         // Convert monitord stats into prometheus objects

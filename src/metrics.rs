@@ -1,4 +1,7 @@
-use prometheus_exporter::{self, prometheus::register_gauge_vec, prometheus::GaugeVec};
+use prometheus_exporter::{
+    self,
+    prometheus::{register_gauge_vec, GaugeVec},
+};
 use tracing::debug;
 
 #[derive(Debug)]
@@ -48,6 +51,11 @@ struct ServiceStats {
 }
 
 #[derive(Debug)]
+struct SystemStats {
+    system_state: GaugeVec,
+}
+
+#[derive(Debug)]
 struct UnitStats {
     active_units: GaugeVec,
     automount_units: GaugeVec,
@@ -74,6 +82,7 @@ pub struct MonitordPromStats {
     networkd: NetworkdStats,
     pid1: Pid1Stats,
     services: ServiceStats,
+    system: SystemStats,
     units: UnitStats,
 }
 
@@ -275,6 +284,20 @@ impl ServiceStats {
     }
 }
 
+impl SystemStats {
+    pub fn new() -> SystemStats {
+        let no_labels = &[];
+        SystemStats {
+            system_state: register_gauge_vec!(
+                "monitord_system_state",
+                "systemd system state - Refer to monitord enum for meaning",
+                no_labels,
+            )
+            .unwrap(),
+        }
+    }
+}
+
 impl UnitStats {
     pub fn new() -> UnitStats {
         let no_labels = &[];
@@ -397,6 +420,7 @@ impl MonitordPromStats {
             networkd: NetworkdStats::new(),
             pid1: Pid1Stats::new(),
             services: ServiceStats::new(),
+            system: SystemStats::new(),
             units: UnitStats::new(),
         }
     }
@@ -544,6 +568,12 @@ impl MonitordPromStats {
                 .with_label_values(service_labels)
                 .set((service_stats.watchdog_usec as i64) as f64);
         }
+
+        // Set the system state
+        self.system
+            .system_state
+            .with_label_values(no_labels)
+            .set((monitord_stats.system_state as u64) as f64);
 
         // Set all the unit stats
         self.units
