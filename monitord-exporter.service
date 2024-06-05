@@ -1,6 +1,6 @@
 [Unit]
 Description=monitord-exporter ... Tell prometheus how your systemd is!
-After=network.target
+After=network-online.target
 
 [Service]
 User=nobody
