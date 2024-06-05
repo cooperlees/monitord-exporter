@@ -13,11 +13,11 @@ categories = ["network-programming", "os::linux-apis"]
 
 [dependencies]
 anyhow = "1.0"
-clap = { version = "4.2", features = ["derive"] }
-indexmap = "2.1.0"
-monitord = "0.8.2"
-prometheus_exporter = "0.8.4"
-signal-hook = "0.3.14"
+clap = { version = "4.5", features = ["derive"] }
+indexmap = "2.2"
+monitord = "0.8.4"
+prometheus_exporter = "0.8"
+signal-hook = "0.3.17"
 tracing = "0.1"
 tracing-core = "0.1"
 tracing-glog = "0.4"
