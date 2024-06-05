@@ -25,8 +25,11 @@ struct Cli {
     /// Adjust the console log-level
     #[arg(long, short, value_enum, ignore_case = true, default_value = "Info")]
     log_level: monitord::logging::LogLevels,
+    /// networkd stats disable
+    #[clap(short, long)]
+    no_networkd: bool,
     /// network netif dir
-    #[clap(short, long, value_parser, default_value = "/run/systemd/netif/links")]
+    #[clap(long, value_parser, default_value = "/run/systemd/netif/links")]
     networkd_state_file_path: PathBuf,
     /// TCP Port to listen on
     #[clap(short, long, value_parser, default_value_t = 1)]
@@ -73,14 +76,17 @@ fn main() -> Result<()> {
     let mut prom_metrics = monitord_exporter::metrics::MonitordPromStats::new();
     loop {
         let guard = exporter.wait_request();
-        // TODO: CLI to disable/enable networkd
-        match monitord::networkd::parse_interface_state_files(
-            args.networkd_state_file_path.clone(),
-            None,
-            &args.dbus_address,
-        ) {
-            Ok(networkd_stats) => monitord_stats.networkd = networkd_stats,
-            Err(err) => error!("networkd stats failed: {}", err),
+
+        // Collect netword stats by default
+        if !args.no_networkd {
+            match monitord::networkd::parse_interface_state_files(
+                args.networkd_state_file_path.clone(),
+                None,
+                &args.dbus_address,
+            ) {
+                Ok(networkd_stats) => monitord_stats.networkd = networkd_stats,
+                Err(err) => error!("networkd stats failed: {err:#?}"),
+            }
         }
 
         // Collect PID1 stats
