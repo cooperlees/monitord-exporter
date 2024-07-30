@@ -3,7 +3,6 @@ use std::thread;
 
 use anyhow::Result;
 use clap::Parser;
-use indexmap::IndexMap;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
@@ -77,12 +76,20 @@ fn main() -> Result<()> {
     loop {
         let guard = exporter.wait_request();
 
+        // TODO: See if we can supply services in the prometheus scrape as params
+        // Generate a monitord config struct from CLI arguments
+        let mut monitord_config = monitord::config::Config::default();
+        monitord_config.monitord.dbus_address = args.dbus_address.clone();
+        monitord_config.networkd.enabled = !args.no_networkd;
+        monitord_config.networkd.link_state_dir = args.networkd_state_file_path.clone();
+        monitord_config.services.extend(args.services.clone());
+
         // Collect netword stats by default
-        if !args.no_networkd {
+        if monitord_config.networkd.enabled {
             match monitord::networkd::parse_interface_state_files(
-                args.networkd_state_file_path.clone(),
+                &monitord_config.networkd.link_state_dir,
                 None,
-                &args.dbus_address,
+                &monitord_config.monitord.dbus_address,
             ) {
                 Ok(networkd_stats) => monitord_stats.networkd = networkd_stats,
                 Err(err) => error!("networkd stats failed: {err:#?}"),
@@ -98,27 +105,20 @@ fn main() -> Result<()> {
             }
         };
 
-        // TODO: See if we can supply services in the prometheus scrape as params
-        let mut monitord_config: IndexMap<String, IndexMap<String, Option<String>>> =
-            IndexMap::new();
-        monitord_config.insert(String::from("services"), IndexMap::new());
-        monitord_config.insert(String::from("units"), IndexMap::new());
-        for service in &args.services {
-            monitord_config["services"].insert(service.clone(), None);
-        }
-        match monitord::units::parse_unit_state(&args.dbus_address, monitord_config) {
+        match monitord::units::parse_unit_state(&monitord_config) {
             Ok(units_stats) => monitord_stats.units = units_stats,
             Err(err) => error!("units stats failed: {}", err),
         }
 
         // Collect system state
-        monitord_stats.system_state = match monitord::system::get_system_state(&args.dbus_address) {
-            Ok(ss) => ss,
-            Err(err) => {
-                error!("Failed to get system state: {err:#?}");
-                monitord::system::SystemdSystemState::unknown
-            }
-        };
+        monitord_stats.system_state =
+            match monitord::system::get_system_state(&monitord_config.monitord.dbus_address) {
+                Ok(ss) => ss,
+                Err(err) => {
+                    error!("Failed to get system state: {err:#?}");
+                    monitord::system::SystemdSystemState::unknown
+                }
+            };
 
         debug!("Stats collected: {:?}", monitord_stats);
 
