@@ -1,8 +1,9 @@
 use std::path::PathBuf;
-use std::thread;
+use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Parser;
+use tokio::sync::RwLock;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
@@ -39,7 +40,7 @@ struct Cli {
 }
 
 /// Signal handler to exit cleanly
-fn signal_handler() {
+async fn signal_handler() {
     let mut signals = match signal_hook::iterator::Signals::new([signal_hook::consts::SIGINT]) {
         Ok(sig) => sig,
         Err(err) => panic!("Unable to handle SIGINT: {:#?}", err),
@@ -53,7 +54,11 @@ fn signal_handler() {
     }
 }
 
-fn main() -> Result<()> {
+// Ignoring that we use a non async friendly lock
+// That is on purpose here as we only want to support 1 request at a time
+#[allow(clippy::await_holding_lock)]
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Cli::parse();
     monitord_exporter::logging::setup_logging(args.log_level.into());
 
@@ -69,61 +74,39 @@ fn main() -> Result<()> {
         }
     };
 
-    thread::spawn(signal_handler);
+    tokio::task::spawn(signal_handler());
 
-    let mut monitord_stats = monitord::MonitordStats::default();
+    let locked_monitord_stats = Arc::new(RwLock::new(monitord::MonitordStats::default()));
     let mut prom_metrics = monitord_exporter::metrics::MonitordPromStats::new();
+
+    // TODO: See if we can supply services in the prometheus scrape as params
+    // - This will probably need to move config parsing back into the request loop
+    // Generate a monitord config struct from CLI arguments
+    let mut monitord_config = monitord::config::Config::default();
+    monitord_config.monitord.dbus_address = args.dbus_address.clone();
+    monitord_config.networkd.enabled = !args.no_networkd;
+    monitord_config.networkd.link_state_dir = args.networkd_state_file_path.clone();
+    monitord_config.services.extend(args.services.clone());
     loop {
         let guard = exporter.wait_request();
 
-        // TODO: See if we can supply services in the prometheus scrape as params
-        // Generate a monitord config struct from CLI arguments
-        let mut monitord_config = monitord::config::Config::default();
-        monitord_config.monitord.dbus_address = args.dbus_address.clone();
-        monitord_config.networkd.enabled = !args.no_networkd;
-        monitord_config.networkd.link_state_dir = args.networkd_state_file_path.clone();
-        monitord_config.services.extend(args.services.clone());
-
-        // Collect netword stats by default
-        if monitord_config.networkd.enabled {
-            match monitord::networkd::parse_interface_state_files(
-                &monitord_config.networkd.link_state_dir,
-                None,
-                &monitord_config.monitord.dbus_address,
-            ) {
-                Ok(networkd_stats) => monitord_stats.networkd = networkd_stats,
-                Err(err) => error!("networkd stats failed: {err:#?}"),
-            }
-        }
-
-        // Collect PID1 stats
-        monitord_stats.pid1 = match monitord::pid1::get_pid1_stats() {
-            Ok(p1s) => Some(p1s),
-            Err(err) => {
-                error!("Failed to get PID1 stats: {err:#?}");
-                None
-            }
-        };
-
-        match monitord::units::parse_unit_state(&monitord_config) {
-            Ok(units_stats) => monitord_stats.units = units_stats,
-            Err(err) => error!("units stats failed: {}", err),
-        }
-
-        // Collect system state
-        monitord_stats.system_state =
-            match monitord::system::get_system_state(&monitord_config.monitord.dbus_address) {
-                Ok(ss) => ss,
-                Err(err) => {
-                    error!("Failed to get system state: {err:#?}");
-                    monitord::system::SystemdSystemState::unknown
+        match monitord::stat_collector(
+            monitord_config.clone(),
+            Some(locked_monitord_stats.clone()),
+            false,
+        )
+        .await
+        {
+            Ok(_) => {
+                {
+                    let monitord_stats = locked_monitord_stats.read().await;
+                    debug!("Stats collected: {:?}", monitord_stats);
+                    // Convert monitord stats into prometheus objects
+                    prom_metrics.populate(&monitord_stats);
                 }
-            };
-
-        debug!("Stats collected: {:?}", monitord_stats);
-
-        // Convert monitord stats into prometheus objects
-        prom_metrics.populate(&monitord_stats);
+            }
+            Err(err) => error!("Stats failed to collect: {:?}", err),
+        }
 
         drop(guard);
         info!("Stats refreshed and served");
