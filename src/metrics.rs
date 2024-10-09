@@ -3,6 +3,7 @@ use prometheus_exporter::{
     prometheus::{register_gauge_vec, GaugeVec},
 };
 use tracing::debug;
+use tracing::error;
 
 #[derive(Debug)]
 struct NetworkdInterfaceStats {
@@ -426,78 +427,88 @@ impl MonitordPromStats {
     }
 
     /// Parse monitord structs and set prometheus objects
-    pub fn populate(&mut self, monitord_stats: &monitord::MonitordStats) {
+    pub fn populate(
+        &mut self,
+        config: &monitord::config::Config,
+        monitord_stats: &monitord::MonitordStats,
+    ) {
         debug!("Setting prometheus objects ...");
         let no_labels = &[];
 
         // networkd stats
-        self.networkd
-            .managed_interfaces
-            .with_label_values(no_labels)
-            .set(monitord_stats.networkd.managed_interfaces as f64);
+        if config.networkd.enabled {
+            self.networkd
+                .managed_interfaces
+                .with_label_values(no_labels)
+                .set(monitord_stats.networkd.managed_interfaces as f64);
 
-        // networkd stats - set interface stats
-        for interface in &monitord_stats.networkd.interfaces_state {
-            let labels = &[interface.name.as_str()];
-            self.networkd
-                .interfaces
-                .address_state
-                .with_label_values(labels)
-                .set((interface.address_state as i64) as f64);
-            self.networkd
-                .interfaces
-                .admin_state
-                .with_label_values(labels)
-                .set((interface.admin_state as i64) as f64);
-            self.networkd
-                .interfaces
-                .carrier_state
-                .with_label_values(labels)
-                .set((interface.carrier_state as i64) as f64);
-            self.networkd
-                .interfaces
-                .ipv4_address_state
-                .with_label_values(labels)
-                .set((interface.ipv4_address_state as i64) as f64);
-            self.networkd
-                .interfaces
-                .ipv6_address_state
-                .with_label_values(labels)
-                .set((interface.ipv6_address_state as i64) as f64);
-            self.networkd
-                .interfaces
-                .oper_state
-                .with_label_values(labels)
-                .set((interface.oper_state as i64) as f64);
-            self.networkd
-                .interfaces
-                .required_for_online
-                .with_label_values(labels)
-                .set((interface.required_for_online as i64) as f64);
+            // networkd stats - set interface stats
+            for interface in &monitord_stats.networkd.interfaces_state {
+                let labels = &[interface.name.as_str()];
+                self.networkd
+                    .interfaces
+                    .address_state
+                    .with_label_values(labels)
+                    .set((interface.address_state as i64) as f64);
+                self.networkd
+                    .interfaces
+                    .admin_state
+                    .with_label_values(labels)
+                    .set((interface.admin_state as i64) as f64);
+                self.networkd
+                    .interfaces
+                    .carrier_state
+                    .with_label_values(labels)
+                    .set((interface.carrier_state as i64) as f64);
+                self.networkd
+                    .interfaces
+                    .ipv4_address_state
+                    .with_label_values(labels)
+                    .set((interface.ipv4_address_state as i64) as f64);
+                self.networkd
+                    .interfaces
+                    .ipv6_address_state
+                    .with_label_values(labels)
+                    .set((interface.ipv6_address_state as i64) as f64);
+                self.networkd
+                    .interfaces
+                    .oper_state
+                    .with_label_values(labels)
+                    .set((interface.oper_state as i64) as f64);
+                self.networkd
+                    .interfaces
+                    .required_for_online
+                    .with_label_values(labels)
+                    .set((interface.required_for_online as i64) as f64);
+            }
         }
 
         // Set pid1 stats
-        if let Some(p1s) = &monitord_stats.pid1 {
-            self.pid1
-                .pid1_cpu_time_kernel
-                .with_label_values(no_labels)
-                .set(p1s.cpu_time_kernel as f64);
-            self.pid1
-                .pid1_cpu_user_kernel
-                .with_label_values(no_labels)
-                .set(p1s.cpu_time_user as f64);
-            self.pid1
-                .pid1_fd_count
-                .with_label_values(no_labels)
-                .set(p1s.fd_count as f64);
-            self.pid1
-                .pid1_memeory_usage_bytes
-                .with_label_values(no_labels)
-                .set(p1s.memory_usage_bytes as f64);
-            self.pid1
-                .pid1_tasks
-                .with_label_values(no_labels)
-                .set(p1s.tasks as f64);
+        if config.pid1.enabled {
+            if let Some(p1s) = &monitord_stats.pid1 {
+                self.pid1
+                    .pid1_cpu_time_kernel
+                    .with_label_values(no_labels)
+                    .set(p1s.cpu_time_kernel as f64);
+                self.pid1
+                    .pid1_cpu_user_kernel
+                    .with_label_values(no_labels)
+                    .set(p1s.cpu_time_user as f64);
+                self.pid1
+                    .pid1_fd_count
+                    .with_label_values(no_labels)
+                    .set(p1s.fd_count as f64);
+                self.pid1
+                    .pid1_memeory_usage_bytes
+                    .with_label_values(no_labels)
+                    .set(p1s.memory_usage_bytes as f64);
+                self.pid1
+                    .pid1_tasks
+                    .with_label_values(no_labels)
+                    .set(p1s.tasks as f64);
+            } else {
+                error!("PID 1 stats are enabled but we don't have any set")
+            }
         }
 
         // Set services stats
@@ -570,10 +581,12 @@ impl MonitordPromStats {
         }
 
         // Set the system state
-        self.system
-            .system_state
-            .with_label_values(no_labels)
-            .set((monitord_stats.system_state as u64) as f64);
+        if config.system_state.enabled {
+            self.system
+                .system_state
+                .with_label_values(no_labels)
+                .set((monitord_stats.system_state as u64) as f64);
+        }
 
         // Set all the unit stats
         self.units

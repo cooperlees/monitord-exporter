@@ -26,8 +26,14 @@ struct Cli {
     #[arg(long, short, value_enum, ignore_case = true, default_value = "Info")]
     log_level: monitord::logging::LogLevels,
     /// networkd stats disable
-    #[clap(short, long)]
+    #[clap(long)]
     no_networkd: bool,
+    /// pid1 stats disable
+    #[clap(long)]
+    no_pid1: bool,
+    /// system state stats disable
+    #[clap(long)]
+    no_system_state: bool,
     /// network netif dir
     #[clap(long, value_parser, default_value = "/run/systemd/netif/links")]
     networkd_state_file_path: PathBuf,
@@ -86,6 +92,8 @@ async fn main() -> Result<()> {
     monitord_config.monitord.dbus_address = args.dbus_address.clone();
     monitord_config.networkd.enabled = !args.no_networkd;
     monitord_config.networkd.link_state_dir = args.networkd_state_file_path.clone();
+    monitord_config.pid1.enabled = !args.no_pid1;
+    monitord_config.system_state.enabled = !args.no_system_state;
     monitord_config.services.extend(args.services.clone());
     loop {
         let guard = exporter.wait_request();
@@ -102,7 +110,7 @@ async fn main() -> Result<()> {
                     let monitord_stats = locked_monitord_stats.read().await;
                     debug!("Stats collected: {:?}", monitord_stats);
                     // Convert monitord stats into prometheus objects
-                    prom_metrics.populate(&monitord_stats);
+                    prom_metrics.populate(&monitord_config, &monitord_stats);
                 }
             }
             Err(err) => error!("Stats failed to collect: {:?}", err),
