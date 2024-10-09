@@ -29,8 +29,14 @@ Options:
           [default: Info]
           [possible values: error, warn, info, debug, trace]
 
-  -n, --no-networkd
+      --no-networkd
           networkd stats disable
+
+      --no-pid1
+          pid1 stats disable
+
+      --no-system-state
+          system state stats disable
 
       --networkd-state-file-path <NETWORKD_STATE_FILE_PATH>
           network netif dir
