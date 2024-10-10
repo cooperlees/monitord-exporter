@@ -243,6 +243,7 @@ To do test runs (requires `systemd` and optionally `systemd-networkd` _installed
 - `cargo run -- -p 1234 -l debug`
   - `-l` for logging level. Recommend debug when developing
   - `-p` > 1024 to run as non root / with capabilities
+  - root is required to read procfs stats of PID 1
 
 Ensure the following pass before submitting a PR (CI checks):
 
