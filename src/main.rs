@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::thread;
 
 use anyhow::Result;
 use clap::Parser;
+use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 use tracing::debug;
 use tracing::error;
@@ -46,7 +48,7 @@ struct Cli {
 }
 
 /// Signal handler to exit cleanly
-async fn signal_handler() {
+fn signal_handler() {
     let mut signals = match signal_hook::iterator::Signals::new([signal_hook::consts::SIGINT]) {
         Ok(sig) => sig,
         Err(err) => panic!("Unable to handle SIGINT: {:#?}", err),
@@ -60,11 +62,7 @@ async fn signal_handler() {
     }
 }
 
-// Ignoring that we use a non async friendly lock
-// That is on purpose here as we only want to support 1 request at a time
-#[allow(clippy::await_holding_lock)]
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let args = Cli::parse();
     monitord_exporter::logging::setup_logging(args.log_level.into());
 
@@ -80,9 +78,8 @@ async fn main() -> Result<()> {
         }
     };
 
-    tokio::task::spawn(signal_handler());
+    thread::spawn(signal_handler);
 
-    let locked_monitord_stats = Arc::new(RwLock::new(monitord::MonitordStats::default()));
     let mut prom_metrics = monitord_exporter::metrics::MonitordPromStats::new();
 
     // TODO: See if we can supply services in the prometheus scrape as params
@@ -95,27 +92,19 @@ async fn main() -> Result<()> {
     monitord_config.pid1.enabled = !args.no_pid1;
     monitord_config.system_state.enabled = !args.no_system_state;
     monitord_config.services.extend(args.services.clone());
+    let rt = Runtime::new().expect("Unable to get an async runtime");
     loop {
         let guard = exporter.wait_request();
-
-        match monitord::stat_collector(
+        let locked_monitord_stats = Arc::new(RwLock::new(monitord::MonitordStats::default()));
+        rt.block_on(monitord::stat_collector(
             monitord_config.clone(),
             Some(locked_monitord_stats.clone()),
             false,
-        )
-        .await
-        {
-            Ok(_) => {
-                {
-                    let monitord_stats = locked_monitord_stats.read().await;
-                    debug!("Stats collected: {:?}", monitord_stats);
-                    // Convert monitord stats into prometheus objects
-                    prom_metrics.populate(&monitord_config, &monitord_stats);
-                }
-            }
-            Err(err) => error!("Stats failed to collect: {:?}", err),
-        }
-
+        ))?;
+        let monitord_stats = rt.block_on(locked_monitord_stats.read());
+        debug!("Stats collected: {:?}", monitord_stats);
+        // Convert monitord stats into prometheus objects
+        prom_metrics.populate(&monitord_config, &monitord_stats);
         drop(guard);
         info!("Stats refreshed and served");
     }
