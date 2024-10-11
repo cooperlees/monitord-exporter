@@ -62,19 +62,6 @@ fn signal_handler() {
     }
 }
 
-async fn update_stats(
-    monitord_config: monitord::config::Config,
-) -> Result<Arc<RwLock<monitord::MonitordStats>>> {
-    let locked_monitord_stats = Arc::new(RwLock::new(monitord::MonitordStats::default()));
-    monitord::stat_collector(
-        monitord_config.clone(),
-        Some(locked_monitord_stats.clone()),
-        false,
-    )
-    .await?;
-    Ok(locked_monitord_stats)
-}
-
 fn main() -> Result<()> {
     let args = Cli::parse();
     monitord_exporter::logging::setup_logging(args.log_level.into());
@@ -108,13 +95,12 @@ fn main() -> Result<()> {
     let rt = Runtime::new().expect("Unable to get an async runtime");
     loop {
         let guard = exporter.wait_request();
-        let locked_monitord_stats = match rt.block_on(update_stats(monitord_config.clone())) {
-            Ok(ls) => ls,
-            Err(err) => {
-                error!("Unable to update stats: {:?}", err);
-                continue;
-            }
-        };
+        let locked_monitord_stats = Arc::new(RwLock::new(monitord::MonitordStats::default()));
+        rt.block_on(monitord::stat_collector(
+            monitord_config.clone(),
+            Some(locked_monitord_stats.clone()),
+            false,
+        ))?;
         let monitord_stats = rt.block_on(locked_monitord_stats.read());
         debug!("Stats collected: {:?}", monitord_stats);
         // Convert monitord stats into prometheus objects
