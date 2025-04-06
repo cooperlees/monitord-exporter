@@ -14,7 +14,7 @@ categories = ["network-programming", "os::linux-apis"]
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
-monitord = "0.12"
+monitord = "0.13"
 prometheus_exporter = "0.8"
 signal-hook = "0.3.17"
 tokio = { version = "1.41.0", feature = ["fs", "rt", "rt-multi-thread", "macros", "tracing", "time", "sync"] }
