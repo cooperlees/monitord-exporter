@@ -842,9 +842,12 @@ impl MachinePromStats {
         let labels = &["machine_name"];
         let svc_labels = &["machine_name", "service_name"];
         MachinePromStats {
+            // This gauge stores the systemd Manager SystemState as a numeric value.
+            // See the org.freedesktop.systemd1.Manager.SystemState documentation for
+            // the list of possible states and their meanings.
             system_state: register_gauge_vec!(
                 "monitord_machine_system_state",
-                "Machine systemd system state",
+                "Machine systemd system state (numeric; see systemd Manager.SystemState for values)",
                 labels,
             )
             .unwrap(),
