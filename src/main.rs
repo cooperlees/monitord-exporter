@@ -45,6 +45,21 @@ struct Cli {
     /// Services to get service stats for
     #[clap(short, long)]
     services: Vec<String>,
+    /// Disable timer stats
+    #[clap(long)]
+    no_timers: bool,
+    /// Disable D-Bus stats
+    #[clap(long)]
+    no_dbus: bool,
+    /// Disable per-unit state tracking
+    #[clap(long)]
+    no_unit_states: bool,
+    /// Disable machine/container stats
+    #[clap(long)]
+    no_machines: bool,
+    /// Specific timers to track
+    #[clap(long)]
+    timers: Vec<String>,
 }
 
 /// Signal handler to exit cleanly
@@ -92,6 +107,11 @@ fn main() -> Result<()> {
     monitord_config.pid1.enabled = !args.no_pid1;
     monitord_config.system_state.enabled = !args.no_system_state;
     monitord_config.services.extend(args.services.clone());
+    monitord_config.timers.enabled = !args.no_timers;
+    monitord_config.timers.allowlist.extend(args.timers.clone());
+    monitord_config.dbus_stats.enabled = !args.no_dbus;
+    monitord_config.units.state_stats = !args.no_unit_states;
+    monitord_config.machines.enabled = !args.no_machines;
     let rt = Runtime::new().expect("Unable to get an async runtime");
     loop {
         let guard = exporter.wait_request();
