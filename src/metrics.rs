@@ -629,13 +629,13 @@ impl UnitStatesPromStats {
         UnitStatesPromStats {
             active_state: register_gauge_vec!(
                 "monitord_unit_active_state",
-                "Unit active state as enum value",
+                "Unit active state as numeric systemd ActiveState value; see systemd.unit(5) for mapping",
                 labels,
             )
             .unwrap(),
             load_state: register_gauge_vec!(
                 "monitord_unit_load_state",
-                "Unit load state as enum value",
+                "Unit load state as numeric systemd LoadState value; see systemd.unit(5) for mapping",
                 labels,
             )
             .unwrap(),
