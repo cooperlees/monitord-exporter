@@ -64,7 +64,7 @@ struct Cli {
     #[clap(long)]
     boot_blame: bool,
     /// Number of slowest boot blame units to report (requires --boot-blame)
-    #[clap(long, value_parser, default_value_t = 5)]
+    #[clap(long, value_parser, default_value_t = 5, requires = "boot_blame")]
     boot_blame_count: u64,
     /// Enable unit verification stats (systemd-analyze verify)
     #[clap(long)]
