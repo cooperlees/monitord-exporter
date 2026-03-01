@@ -51,6 +51,32 @@ Options:
   -s, --services <SERVICES>
           Services to get service stats for
 
+      --no-timers
+          Disable timer stats
+
+      --no-dbus
+          Disable D-Bus stats
+
+      --no-unit-states
+          Disable per-unit state tracking
+
+      --no-machines
+          Disable machine/container stats
+
+      --timers <TIMERS>
+          Specific timers to track
+
+      --boot-blame
+          Enable boot blame stats (slowest N units at boot)
+
+      --boot-blame-count <BOOT_BLAME_COUNT>
+          Number of slowest boot blame units to report (requires --boot-blame)
+
+          [default: 5]
+
+      --verify
+          Enable unit verification stats (systemd-analyze verify)
+
   -h, --help
           Print help (see a summary with '-h')
 
@@ -234,6 +260,27 @@ prometheus_exporter_requests_total 3
 # HELP prometheus_exporter_response_size_bytes The HTTP response sizes in bytes.
 # TYPE prometheus_exporter_response_size_bytes gauge
 prometheus_exporter_response_size_bytes 9439
+```
+
+### Boot blame metrics (enabled with `--boot-blame`)
+
+```console
+# HELP monitord_boot_blame_activation_time_seconds Boot blame activation time in seconds per unit
+# TYPE monitord_boot_blame_activation_time_seconds gauge
+monitord_boot_blame_activation_time_seconds{unit_name="NetworkManager-wait-online.service"} 8.342
+monitord_boot_blame_activation_time_seconds{unit_name="systemd-journal-flush.service"} 3.105
+```
+
+### Verify metrics (enabled with `--verify`)
+
+```console
+# HELP monitord_verify_failed_units_by_type Count of units with verification failures by unit type
+# TYPE monitord_verify_failed_units_by_type gauge
+monitord_verify_failed_units_by_type{unit_type="service"} 1
+monitord_verify_failed_units_by_type{unit_type="timer"} 1
+# HELP monitord_verify_failed_units_total Total count of units with verification failures
+# TYPE monitord_verify_failed_units_total gauge
+monitord_verify_failed_units_total 2
 ```
 
 ## Development

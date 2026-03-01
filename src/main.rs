@@ -60,6 +60,15 @@ struct Cli {
     /// Specific timers to track
     #[clap(long)]
     timers: Vec<String>,
+    /// Enable boot blame stats (slowest N units at boot)
+    #[clap(long)]
+    boot_blame: bool,
+    /// Number of slowest boot blame units to report (requires --boot-blame)
+    #[clap(long, value_parser, default_value_t = 5, requires = "boot_blame")]
+    boot_blame_count: u64,
+    /// Enable unit verification stats (systemd-analyze verify)
+    #[clap(long)]
+    verify: bool,
 }
 
 /// Signal handler to exit cleanly
@@ -112,6 +121,9 @@ fn main() -> Result<()> {
     monitord_config.dbus_stats.enabled = !args.no_dbus;
     monitord_config.units.state_stats = !args.no_unit_states;
     monitord_config.machines.enabled = !args.no_machines;
+    monitord_config.boot_blame.enabled = args.boot_blame;
+    monitord_config.boot_blame.num_slowest_units = args.boot_blame_count;
+    monitord_config.verify.enabled = args.verify;
     let rt = Runtime::new().expect("Unable to get an async runtime");
     loop {
         let guard = exporter.wait_request();
