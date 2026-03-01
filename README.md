@@ -69,6 +69,11 @@ Options:
       --boot-blame
           Enable boot blame stats (slowest N units at boot)
 
+      --boot-blame-count <BOOT_BLAME_COUNT>
+          Number of slowest boot blame units to report (requires --boot-blame)
+
+          [default: 5]
+
       --verify
           Enable unit verification stats (systemd-analyze verify)
 
