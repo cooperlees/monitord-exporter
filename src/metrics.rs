@@ -141,6 +141,17 @@ struct DBusPeerPromStats {
 }
 
 #[derive(Debug)]
+struct BootBlamePromStats {
+    activation_time_seconds: GaugeVec,
+}
+
+#[derive(Debug)]
+struct VerifyPromStats {
+    total: GaugeVec,
+    by_type: GaugeVec,
+}
+
+#[derive(Debug)]
 struct VersionPromStats {
     version_major: GaugeVec,
     version_info: GaugeVec,
@@ -191,6 +202,9 @@ struct MachinePromStats {
     service_tasks_current: GaugeVec,
     service_timeout_clean_usec: GaugeVec,
     service_watchdog_usec: GaugeVec,
+    boot_blame_activation_time_seconds: GaugeVec,
+    verify_total: GaugeVec,
+    verify_by_type: GaugeVec,
 }
 
 #[derive(Debug)]
@@ -207,6 +221,8 @@ pub struct MonitordPromStats {
     dbus_peers: DBusPeerPromStats,
     version: VersionPromStats,
     machines: MachinePromStats,
+    boot_blame: BootBlamePromStats,
+    verify: VerifyPromStats,
 }
 
 impl NetworkdInterfaceStats {
@@ -837,6 +853,38 @@ impl VersionPromStats {
     }
 }
 
+impl BootBlamePromStats {
+    pub fn new() -> BootBlamePromStats {
+        BootBlamePromStats {
+            activation_time_seconds: register_gauge_vec!(
+                "monitord_boot_blame_activation_time_seconds",
+                "Boot blame activation time in seconds per unit",
+                &["unit_name"],
+            )
+            .unwrap(),
+        }
+    }
+}
+
+impl VerifyPromStats {
+    pub fn new() -> VerifyPromStats {
+        VerifyPromStats {
+            total: register_gauge_vec!(
+                "monitord_verify_failed_units_total",
+                "Total count of units with verification failures",
+                &[],
+            )
+            .unwrap(),
+            by_type: register_gauge_vec!(
+                "monitord_verify_failed_units_by_type",
+                "Count of units with verification failures by unit type",
+                &["unit_type"],
+            )
+            .unwrap(),
+        }
+    }
+}
+
 impl MachinePromStats {
     pub fn new() -> MachinePromStats {
         let labels = &["machine_name"];
@@ -1103,6 +1151,24 @@ impl MachinePromStats {
                 svc_labels,
             )
             .unwrap(),
+            boot_blame_activation_time_seconds: register_gauge_vec!(
+                "monitord_machine_boot_blame_activation_time_seconds",
+                "Machine boot blame activation time in seconds per unit",
+                &["machine_name", "unit_name"],
+            )
+            .unwrap(),
+            verify_total: register_gauge_vec!(
+                "monitord_machine_verify_failed_units_total",
+                "Machine total count of units with verification failures",
+                &["machine_name"],
+            )
+            .unwrap(),
+            verify_by_type: register_gauge_vec!(
+                "monitord_machine_verify_failed_units_by_type",
+                "Machine count of units with verification failures by unit type",
+                &["machine_name", "unit_type"],
+            )
+            .unwrap(),
         }
     }
 }
@@ -1122,6 +1188,8 @@ impl MonitordPromStats {
             dbus_peers: DBusPeerPromStats::new(),
             version: VersionPromStats::new(),
             machines: MachinePromStats::new(),
+            boot_blame: BootBlamePromStats::new(),
+            verify: VerifyPromStats::new(),
         }
     }
 
@@ -1803,6 +1871,64 @@ impl MonitordPromStats {
                         .service_watchdog_usec
                         .with_label_values(svc_labels)
                         .set((svc_stats.watchdog_usec as i64) as f64);
+                }
+
+                // Machine boot blame stats
+                if config.boot_blame.enabled {
+                    if let Some(boot_blame) = &machine_stats.boot_blame {
+                        for (unit_name, activation_time) in boot_blame.iter() {
+                            let bb_labels = &[machine_name.as_str(), unit_name.as_str()];
+                            self.machines
+                                .boot_blame_activation_time_seconds
+                                .with_label_values(bb_labels)
+                                .set(*activation_time);
+                        }
+                    }
+                }
+
+                // Machine verify stats
+                if config.verify.enabled {
+                    if let Some(verify) = &machine_stats.verify_stats {
+                        self.machines
+                            .verify_total
+                            .with_label_values(labels)
+                            .set(verify.total as f64);
+                        for (unit_type, count) in verify.by_type.iter() {
+                            let vt_labels = &[machine_name.as_str(), unit_type.as_str()];
+                            self.machines
+                                .verify_by_type
+                                .with_label_values(vt_labels)
+                                .set(*count as f64);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Set boot blame stats
+        if config.boot_blame.enabled {
+            if let Some(boot_blame) = &monitord_stats.boot_blame {
+                for (unit_name, activation_time) in boot_blame.iter() {
+                    self.boot_blame
+                        .activation_time_seconds
+                        .with_label_values(&[unit_name.as_str()])
+                        .set(*activation_time);
+                }
+            }
+        }
+
+        // Set verify stats
+        if config.verify.enabled {
+            if let Some(verify) = &monitord_stats.verify_stats {
+                self.verify
+                    .total
+                    .with_label_values(no_labels)
+                    .set(verify.total as f64);
+                for (unit_type, count) in verify.by_type.iter() {
+                    self.verify
+                        .by_type
+                        .with_label_values(&[unit_type.as_str()])
+                        .set(*count as f64);
                 }
             }
         }
