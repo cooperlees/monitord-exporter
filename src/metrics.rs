@@ -1,6 +1,6 @@
 use prometheus_exporter::{
     self,
-    prometheus::{register_gauge_vec, GaugeVec},
+    prometheus::{register_counter_vec, register_gauge_vec, CounterVec, GaugeVec},
 };
 use tracing::debug;
 use tracing::error;
@@ -147,7 +147,7 @@ struct BootBlamePromStats {
 
 #[derive(Debug)]
 struct VerifyPromStats {
-    total: GaugeVec,
+    total: CounterVec,
     by_type: GaugeVec,
 }
 
@@ -203,7 +203,7 @@ struct MachinePromStats {
     service_timeout_clean_usec: GaugeVec,
     service_watchdog_usec: GaugeVec,
     boot_blame_activation_time_seconds: GaugeVec,
-    verify_total: GaugeVec,
+    verify_total: CounterVec,
     verify_by_type: GaugeVec,
 }
 
@@ -869,7 +869,7 @@ impl BootBlamePromStats {
 impl VerifyPromStats {
     pub fn new() -> VerifyPromStats {
         VerifyPromStats {
-            total: register_gauge_vec!(
+            total: register_counter_vec!(
                 "monitord_verify_failed_units_total",
                 "Total count of units with verification failures",
                 &[],
@@ -1157,7 +1157,7 @@ impl MachinePromStats {
                 &["machine_name", "unit_name"],
             )
             .unwrap(),
-            verify_total: register_gauge_vec!(
+            verify_total: register_counter_vec!(
                 "monitord_machine_verify_failed_units_total",
                 "Machine total count of units with verification failures",
                 &["machine_name"],
@@ -1889,10 +1889,9 @@ impl MonitordPromStats {
                 // Machine verify stats
                 if config.verify.enabled {
                     if let Some(verify) = &machine_stats.verify_stats {
-                        self.machines
-                            .verify_total
-                            .with_label_values(labels)
-                            .set(verify.total as f64);
+                        let c = self.machines.verify_total.with_label_values(labels);
+                        c.reset();
+                        c.inc_by(verify.total as f64);
                         for (unit_type, count) in verify.by_type.iter() {
                             let vt_labels = &[machine_name.as_str(), unit_type.as_str()];
                             self.machines
@@ -1920,10 +1919,9 @@ impl MonitordPromStats {
         // Set verify stats
         if config.verify.enabled {
             if let Some(verify) = &monitord_stats.verify_stats {
-                self.verify
-                    .total
-                    .with_label_values(no_labels)
-                    .set(verify.total as f64);
+                let c = self.verify.total.with_label_values(no_labels);
+                c.reset();
+                c.inc_by(verify.total as f64);
                 for (unit_type, count) in verify.by_type.iter() {
                     self.verify
                         .by_type
