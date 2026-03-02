@@ -1,97 +1,171 @@
 # monitord-exporter
 
-Tell prometheus how happy your systemd is ! 😊
+Tell Prometheus how happy your systemd is! 😊
 
-A prometheus exporter using [monitord](https://github.com/cooperlees/monitord-exporter) to export statistic to prometheus collectors.
+A Prometheus exporter using [monitord](https://github.com/cooperlees/monitord) to export systemd health metrics — networkd interfaces, PID 1 stats, per-service stats, system state, unit counts, timers, D-Bus stats, boot blame, unit verification, and machine/container stats.
+
+Stats are collected **on-demand** per Prometheus scrape (not polled on an interval), keeping resource usage minimal.
+
+## How It Works
+
+monitord-exporter wraps the [monitord](https://github.com/cooperlees/monitord) Rust library as a Prometheus exporter. On each scrape request, it calls `monitord::stat_collector()` which queries systemd over D-Bus in real-time, maps the results into Prometheus gauge and counter metrics, and serves them over HTTP.
+
+The binary is optimized for small size (LTO + `opt-level = "z"`), making it suitable for embedded systems.
+
+```
+Prometheus scrape → HTTP endpoint ([::]:port) → monitord::stat_collector() → D-Bus → systemd
+                                                       ↓
+                                             Prometheus metrics served
+```
+
+## Requirements
+
+- Linux with systemd
+- D-Bus system bus access
+- Optional: `systemd-networkd` for networkd metrics
+- Optional: `systemd-analyze` for `--boot-blame` and `--verify` features
+- Root or appropriate capabilities for PID 1 procfs stats
 
 ## Install
 
-Install via cargo.
+```bash
+cargo install monitord-exporter
+```
 
-- `cargo install monitord-exporter`
-- `monitord-exporter --help`
+## Usage Examples
 
-```console
-$ monitord-exporter --help
-prometheus exporter to share how happy your systemd is ! 😊
+```bash
+# Monitor ssh and docker services on port 9090
+monitord-exporter -p 9090 -s ssh.service -s docker.service
 
-Usage: monitord-exporter [OPTIONS]
+# Minimal: just unit counts and system state, no networkd/pid1
+monitord-exporter -p 9090 --no-networkd --no-pid1
 
-Options:
-  -d, --dbus-address <DBUS_ADDRESS>
-          dbus address
+# Full monitoring with boot blame and verification
+monitord-exporter -p 9090 -s ssh.service --boot-blame --boot-blame-count 10 --verify
 
-          [default: unix:path=/run/dbus/system_bus_socket]
+# Debug logging
+monitord-exporter -p 9090 -l debug
+```
 
-  -l, --log-level <LOG_LEVEL>
-          Adjust the console log-level
+## CLI Reference
 
-          [default: Info]
-          [possible values: error, warn, info, debug, trace]
+### Core options
 
-      --no-networkd
-          networkd stats disable
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-p, --port` | `1` | TCP port to listen on (use >1024 for non-root) |
+| `-d, --dbus-address` | `unix:path=/run/dbus/system_bus_socket` | D-Bus address |
+| `-l, --log-level` | `Info` | Log level: error, warn, info, debug, trace |
 
-      --no-pid1
-          pid1 stats disable
+### Feature toggles (disable collectors)
 
-      --no-system-state
-          system state stats disable
+| Flag | Description |
+|------|-------------|
+| `--no-networkd` | Disable networkd interface stats |
+| `--no-pid1` | Disable PID 1 process stats |
+| `--no-system-state` | Disable system state |
+| `--no-timers` | Disable timer stats |
+| `--no-dbus` | Disable D-Bus stats |
+| `--no-unit-states` | Disable per-unit state tracking |
+| `--no-machines` | Disable machine/container stats |
 
-      --networkd-state-file-path <NETWORKD_STATE_FILE_PATH>
-          network netif dir
+### Service & timer tracking
 
-          [default: /run/systemd/netif/links]
+| Flag | Description |
+|------|-------------|
+| `-s, --services` | Services to track (repeatable, e.g. `-s ssh.service -s docker.service`) |
+| `--timers` | Specific timers to track (repeatable) |
 
-  -p, --port <PORT>
-          TCP Port to listen on
+### Boot analysis
 
-          [default: 1]
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--boot-blame` | disabled | Enable boot blame stats (requires `systemd-analyze`) |
+| `--boot-blame-count` | `5` | Number of slowest boot units to report (requires `--boot-blame`) |
 
-  -s, --services <SERVICES>
-          Services to get service stats for
+### Other
 
-      --no-timers
-          Disable timer stats
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--verify` | disabled | Enable unit verification via `systemd-analyze verify` |
+| `--networkd-state-file-path` | `/run/systemd/netif/links` | Path to networkd link state files |
 
-      --no-dbus
-          Disable D-Bus stats
+## Metrics Reference
 
-      --no-unit-states
-          Disable per-unit state tracking
+All metrics use the `monitord_` prefix. The example output below shows a subset; see each category for the full list.
 
-      --no-machines
-          Disable machine/container stats
+### Networkd metrics (`monitord_networkd_*`)
 
-      --timers <TIMERS>
-          Specific timers to track
+Per-interface gauges (labeled by `interface_name`): address_state, admin_state, carrier_state, ipv4_address_state, ipv6_address_state, oper_state, required_for_online. Plus a global `managed_interfaces` count.
 
-      --boot-blame
-          Enable boot blame stats (slowest N units at boot)
+### PID 1 metrics (`monitord_pid1_*`)
 
-      --boot-blame-count <BOOT_BLAME_COUNT>
-          Number of slowest boot blame units to report (requires --boot-blame)
+Process stats for PID 1 (systemd): cpu_time_kernel, cpu_user_kernel, fd_count, memory_usage_bytes, tasks.
 
-          [default: 5]
+### Service metrics (`monitord_service_*`)
 
-      --verify
-          Enable unit verification stats (systemd-analyze verify)
+Per-service gauges (labeled by `service_name`): active_enter_timestamp, active_exit_timestamp, cpuusage_nsec, inactive_exit_timestamp, ioread_bytes, ioread_operations, memory_available, memory_current, nrestarts, processes, restart_usec, state_change_timestamp, status_errno, tasks_current, timeout_clean_usec, watchdog_usec.
 
-  -h, --help
-          Print help (see a summary with '-h')
+### System state (`monitord_system_state`)
 
-  -V, --version
-          Print version
+Overall systemd system state as a numeric enum value.
+
+### Unit counts (`monitord_units_*`)
+
+Counts of systemd units by type: active, automount, device, failed, inactive, loaded, masked, mount, not_found, path, scope, service, slice, socket, target, timer, total. Plus `jobs_queued`.
+
+### Timer metrics (`monitord_timer_*`)
+
+Per-timer gauges (labeled by `timer_name`): accuracy_usec, fixed_random_delay, last_trigger_usec, last_trigger_usec_monotonic, next_elapse_usec_monotonic, next_elapse_usec_realtime, persistent, randomized_delay_usec, remain_after_elapse, service_unit_last_state_change_usec, service_unit_last_state_change_usec_monotonic.
+
+### Unit state metrics (`monitord_unit_*`)
+
+Per-unit gauges (labeled by `unit_name`): active_state, load_state, unhealthy, time_in_state_usecs.
+
+### D-Bus metrics (`monitord_dbus_*`)
+
+System-wide D-Bus stats: serial, active_connections, incomplete_connections, bus_names, peak_bus_names, peak_bus_names_per_connection, match_rules, peak_match_rules, peak_match_rules_per_connection.
+
+Per-UID stats (`monitord_dbus_user_*`): bytes_cur, bytes_max, fds_cur, fds_max, matches_cur, matches_max, objects_cur, objects_max.
+
+Per-peer stats (`monitord_dbus_peer_*`): name_objects, matches, match_bytes, reply_objects, incoming_bytes, incoming_fds, outgoing_bytes, outgoing_fds.
+
+### Boot blame metrics (`monitord_boot_blame_*`)
+
+Enabled with `--boot-blame`. Reports the N slowest units at boot: `activation_time_seconds` (labeled by `unit_name`).
+
+### Verify metrics (`monitord_verify_*`)
+
+Enabled with `--verify`. Reports unit verification failures: `failed_units_total` and `failed_units_by_type` (labeled by `unit_type`).
+
+### systemd version (`monitord_systemd_version_*`)
+
+Reports the running systemd version: `major` (numeric) and `info` (labeled with version string).
+
+### Machine/container metrics (`monitord_machine_*`)
+
+Mirrors host metrics (system_state, units, pid1, service, networkd, boot_blame, verify) per machine/container, labeled by `machine_name`.
+
+## Prometheus Scrape Config
+
+```yaml
+scrape_configs:
+  - job_name: 'monitord'
+    static_configs:
+      - targets: ['localhost:9090']
 ```
 
 ## Example Output
 
+The following shows a subset of metrics from a typical scrape. See the [Metrics Reference](#metrics-reference) for the full list.
+
 ```console
-# HELP monitord_networkd_address_state Protocol independent address states (Need to find a better explanation)
+# HELP monitord_networkd_address_state Protocol independent address states
 # TYPE monitord_networkd_address_state gauge
 monitord_networkd_address_state{interface_name="eth0"} 3
 monitord_networkd_address_state{interface_name="wg0"} 3
-# HELP monitord_networkd_admin_state Is the interface configured to be operational (Double check)
+# HELP monitord_networkd_admin_state Is the interface configured to be operational
 # TYPE monitord_networkd_admin_state gauge
 monitord_networkd_admin_state{interface_name="eth0"} 4
 monitord_networkd_admin_state{interface_name="wg0"} 4
@@ -99,14 +173,6 @@ monitord_networkd_admin_state{interface_name="wg0"} 4
 # TYPE monitord_networkd_carrier_state gauge
 monitord_networkd_carrier_state{interface_name="eth0"} 5
 monitord_networkd_carrier_state{interface_name="wg0"} 5
-# HELP monitord_networkd_ipv4_address_state Deprecated IP on the interface operational state
-# TYPE monitord_networkd_ipv4_address_state gauge
-monitord_networkd_ipv4_address_state{interface_name="eth0"} 3
-monitord_networkd_ipv4_address_state{interface_name="wg0"} 3
-# HELP monitord_networkd_ipv6_address_state IPv6 on the interface operational state
-# TYPE monitord_networkd_ipv6_address_state gauge
-monitord_networkd_ipv6_address_state{interface_name="eth0"} 3
-monitord_networkd_ipv6_address_state{interface_name="wg0"} 3
 # HELP monitord_networkd_managed_interfaces Count of interfaces networkd manages
 # TYPE monitord_networkd_managed_interfaces gauge
 monitord_networkd_managed_interfaces 2
@@ -114,16 +180,9 @@ monitord_networkd_managed_interfaces 2
 # TYPE monitord_networkd_oper_state gauge
 monitord_networkd_oper_state{interface_name="eth0"} 9
 monitord_networkd_oper_state{interface_name="wg0"} 9
-# HELP monitord_networkd_required_for_online Bool state of systemd being configured to wait for this interface to come online before network online target.
-# TYPE monitord_networkd_required_for_online gauge
-monitord_networkd_required_for_online{interface_name="eth0"} 1
-monitord_networkd_required_for_online{interface_name="wg0"} 1
 # HELP monitord_pid1_cpu_time_kernel CPU time used by PID1
 # TYPE monitord_pid1_cpu_time_kernel gauge
 monitord_pid1_cpu_time_kernel 189
-# HELP monitord_pid1_cpu_user_kernel CPU user space time used by PID1
-# TYPE monitord_pid1_cpu_user_kernel gauge
-monitord_pid1_cpu_user_kernel 268
 # HELP monitord_pid1_fd_count Open file descriptors for PID1
 # TYPE monitord_pid1_fd_count gauge
 monitord_pid1_fd_count 169
@@ -136,24 +195,9 @@ monitord_pid1_tasks 1
 # HELP monitord_service_active_enter_timestamp Active enter timestamp
 # TYPE monitord_service_active_enter_timestamp gauge
 monitord_service_active_enter_timestamp{service_name="ssh.service"} 1717037801690678
-# HELP monitord_service_active_exit_timestamp Active exti timestamp
-# TYPE monitord_service_active_exit_timestamp gauge
-monitord_service_active_exit_timestamp{service_name="ssh.service"} 0
 # HELP monitord_service_cpuuage_nsec CPU usage nano seconds
 # TYPE monitord_service_cpuuage_nsec gauge
 monitord_service_cpuuage_nsec{service_name="ssh.service"} 3257412922000
-# HELP monitord_service_inactive_exit_timestamp Inactive exit timestamp
-# TYPE monitord_service_inactive_exit_timestamp gauge
-monitord_service_inactive_exit_timestamp{service_name="ssh.service"} 1717037801646233
-# HELP monitord_service_ioread_bytes IO bytes read
-# TYPE monitord_service_ioread_bytes gauge
-monitord_service_ioread_bytes{service_name="ssh.service"} -1
-# HELP monitord_service_ioread_operations IO Opertations
-# TYPE monitord_service_ioread_operations gauge
-monitord_service_ioread_operations{service_name="ssh.service"} -1
-# HELP monitord_service_memory_available Memory available
-# TYPE monitord_service_memory_available gauge
-monitord_service_memory_available{service_name="ssh.service"} 771878912
 # HELP monitord_service_memory_current Memory currently in use
 # TYPE monitord_service_memory_current gauge
 monitord_service_memory_current{service_name="ssh.service"} 6971392
@@ -163,103 +207,21 @@ monitord_service_nrestarts{service_name="ssh.service"} 0
 # HELP monitord_service_processes Count of processes
 # TYPE monitord_service_processes gauge
 monitord_service_processes{service_name="ssh.service"} 1
-# HELP monitord_service_restart_usec Restart time in usecs
-# TYPE monitord_service_restart_usec gauge
-monitord_service_restart_usec{service_name="ssh.service"} 100000
-# HELP monitord_service_state_chage_timestamp Last unit state change timestamp
-# TYPE monitord_service_state_chage_timestamp gauge
-monitord_service_state_chage_timestamp{service_name="ssh.service"} 1717037801690678
-# HELP monitord_service_status_errno Status error number
-# TYPE monitord_service_status_errno gauge
-monitord_service_status_errno{service_name="ssh.service"} 0
-# HELP monitord_service_tasks_current Tasks current (processes + threads)
-# TYPE monitord_service_tasks_current gauge
-monitord_service_tasks_current{service_name="ssh.service"} 1
-# HELP monitord_service_timeout_clean_usec Clean timeout usecs
-# TYPE monitord_service_timeout_clean_usec gauge
-monitord_service_timeout_clean_usec{service_name="ssh.service"} -1
-# HELP monitord_service_watchdog_usec Watchdog runtime usecs
-# TYPE monitord_service_watchdog_usec gauge
-monitord_service_watchdog_usec{service_name="ssh.service"} 0
 # HELP monitord_system_state systemd system state - Refer to monitord enum for meaning
 # TYPE monitord_system_state gauge
 monitord_system_state 3
 # HELP monitord_units_active_units Count of all active units
 # TYPE monitord_units_active_units gauge
 monitord_units_active_units 306
-# HELP monitord_units_automount_units Count of all automount units
-# TYPE monitord_units_automount_units gauge
-monitord_units_automount_units 2
-# HELP monitord_units_device_units Count of device units
-# TYPE monitord_units_device_units gauge
-monitord_units_device_units 79
-# HELP monitord_units_failed_units Count of failed units - delete or fix
+# HELP monitord_units_failed_units Count of failed units
 # TYPE monitord_units_failed_units gauge
 monitord_units_failed_units 0
-# HELP monitord_units_inactive_units Count of inactive units
-# TYPE monitord_units_inactive_units gauge
-monitord_units_inactive_units 169
-# HELP monitord_units_jobs_queued systemd jobs queued - Add what a job is ...
-# TYPE monitord_units_jobs_queued gauge
-monitord_units_jobs_queued 0
 # HELP monitord_units_loaded_units Count of loaded units
 # TYPE monitord_units_loaded_units gauge
 monitord_units_loaded_units 431
-# HELP monitord_units_masked_units Count of masked units
-# TYPE monitord_units_masked_units gauge
-monitord_units_masked_units 3
-# HELP monitord_units_mount_units Count of mount units
-# TYPE monitord_units_mount_units gauge
-monitord_units_mount_units 40
-# HELP monitord_units_not_found_units Count of not found units
-# TYPE monitord_units_not_found_units gauge
-monitord_units_not_found_units 41
-# HELP monitord_units_path_units Count of path units
-# TYPE monitord_units_path_units gauge
-monitord_units_path_units 6
-# HELP monitord_units_scope_units Count of scope units
-# TYPE monitord_units_scope_units gauge
-monitord_units_scope_units 17
-# HELP monitord_units_service_units Count of service units
-# TYPE monitord_units_service_units gauge
-monitord_units_service_units 179
-# HELP monitord_units_slice_units Count of slice units
-# TYPE monitord_units_slice_units gauge
-monitord_units_slice_units 8
-# HELP monitord_units_socket_units Count of socket units
-# TYPE monitord_units_socket_units gauge
-monitord_units_socket_units 24
-# HELP monitord_units_target_units Count of target units
-# TYPE monitord_units_target_units gauge
-monitord_units_target_units 49
-# HELP monitord_units_timer_units Count of timer units
-# TYPE monitord_units_timer_units gauge
-monitord_units_timer_units 17
 # HELP monitord_units_total_units Count of total systemd units
 # TYPE monitord_units_total_units gauge
 monitord_units_total_units 475
-# HELP prometheus_exporter_request_duration_seconds The HTTP request latencies in seconds.
-# TYPE prometheus_exporter_request_duration_seconds histogram
-prometheus_exporter_request_duration_seconds_bucket{le="0.005"} 0
-prometheus_exporter_request_duration_seconds_bucket{le="0.01"} 0
-prometheus_exporter_request_duration_seconds_bucket{le="0.025"} 3
-prometheus_exporter_request_duration_seconds_bucket{le="0.05"} 3
-prometheus_exporter_request_duration_seconds_bucket{le="0.1"} 3
-prometheus_exporter_request_duration_seconds_bucket{le="0.25"} 3
-prometheus_exporter_request_duration_seconds_bucket{le="0.5"} 3
-prometheus_exporter_request_duration_seconds_bucket{le="1"} 3
-prometheus_exporter_request_duration_seconds_bucket{le="2.5"} 3
-prometheus_exporter_request_duration_seconds_bucket{le="5"} 3
-prometheus_exporter_request_duration_seconds_bucket{le="10"} 3
-prometheus_exporter_request_duration_seconds_bucket{le="+Inf"} 3
-prometheus_exporter_request_duration_seconds_sum 0.044447549
-prometheus_exporter_request_duration_seconds_count 3
-# HELP prometheus_exporter_requests_total Number of HTTP requests received.
-# TYPE prometheus_exporter_requests_total counter
-prometheus_exporter_requests_total 3
-# HELP prometheus_exporter_response_size_bytes The HTTP response sizes in bytes.
-# TYPE prometheus_exporter_response_size_bytes gauge
-prometheus_exporter_response_size_bytes 9439
 ```
 
 ### Boot blame metrics (enabled with `--boot-blame`)
@@ -285,12 +247,16 @@ monitord_verify_failed_units_total 2
 
 ## Development
 
-To do test runs (requires `systemd` and optionally `systemd-networkd` _installed_)
+To do test runs (requires `systemd` and optionally `systemd-networkd` _installed_):
 
-- `cargo run -- -p 1234 -l debug`
-  - `-l` for logging level. Recommend debug when developing
-  - `-p` > 1024 to run as non root / with capabilities
-  - root is required to read procfs stats of PID 1
+```bash
+cargo run -- -p 1234 -l debug         # Run locally with debug logging
+cargo build --release --all-features   # Release build (optimized for size via LTO)
+```
+
+- Use `-p` > 1024 to run as non-root / without capabilities
+- Root is required to read procfs stats of PID 1
+- The exporter binds to `[::]` (IPv6)
 
 Ensure the following pass before submitting a PR (CI checks):
 
