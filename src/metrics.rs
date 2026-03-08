@@ -2132,9 +2132,7 @@ impl MonitordPromStats {
                         self.machines
                             .timer_service_unit_last_state_change_usec_monotonic
                             .with_label_values(t_labels)
-                            .set(
-                                timer_stats.service_unit_last_state_change_usec_monotonic as f64,
-                            );
+                            .set(timer_stats.service_unit_last_state_change_usec_monotonic as f64);
                     }
                 }
 
