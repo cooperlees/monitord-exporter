@@ -4,6 +4,7 @@ use std::thread;
 
 use anyhow::Result;
 use clap::Parser;
+use configparser::ini::Ini;
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 use tracing::debug;
@@ -12,62 +13,100 @@ use tracing::info;
 
 const LONG_ABOUT: &str = "prometheus exporter to share how happy your systemd is ! 😊";
 
+const CONFIG_CONFLICTS: &[&str] = &[
+    "dbus_address",
+    "no_networkd",
+    "no_pid1",
+    "no_system_state",
+    "networkd_state_file_path",
+    "services",
+    "no_timers",
+    "no_dbus",
+    "no_unit_states",
+    "no_machines",
+    "timers",
+    "boot_blame",
+    "boot_blame_count",
+    "verify",
+];
+
 /// Clap CLI Args struct with metadata in help output
 #[derive(Debug, Parser)]
 #[clap(author, version, about, long_about = LONG_ABOUT)]
 struct Cli {
+    /// Path to a monitord.conf config file. Mutually exclusive with all other config arguments.
+    /// Supported since monitord-exporter >= 0.19.0.
+    #[clap(
+        short = 'c',
+        long,
+        value_parser,
+        conflicts_with_all = CONFIG_CONFLICTS
+    )]
+    config: Option<PathBuf>,
     /// dbus address
     #[clap(
         short,
         long,
         value_parser,
-        default_value = "unix:path=/run/dbus/system_bus_socket"
+        default_value = "unix:path=/run/dbus/system_bus_socket",
+        conflicts_with = "config"
     )]
     dbus_address: String,
     /// Adjust the console log-level
     #[arg(long, short, value_enum, ignore_case = true, default_value = "Info")]
     log_level: monitord::logging::LogLevels,
     /// networkd stats disable
-    #[clap(long)]
+    #[clap(long, conflicts_with = "config")]
     no_networkd: bool,
     /// pid1 stats disable
-    #[clap(long)]
+    #[clap(long, conflicts_with = "config")]
     no_pid1: bool,
     /// system state stats disable
-    #[clap(long)]
+    #[clap(long, conflicts_with = "config")]
     no_system_state: bool,
     /// network netif dir
-    #[clap(long, value_parser, default_value = "/run/systemd/netif/links")]
+    #[clap(
+        long,
+        value_parser,
+        default_value = "/run/systemd/netif/links",
+        conflicts_with = "config"
+    )]
     networkd_state_file_path: PathBuf,
     /// TCP Port to listen on
     #[clap(short, long, value_parser, default_value_t = 1)]
     port: u16,
     /// Services to get service stats for
-    #[clap(short, long)]
+    #[clap(short, long, conflicts_with = "config")]
     services: Vec<String>,
     /// Disable timer stats
-    #[clap(long)]
+    #[clap(long, conflicts_with = "config")]
     no_timers: bool,
     /// Disable D-Bus stats
-    #[clap(long)]
+    #[clap(long, conflicts_with = "config")]
     no_dbus: bool,
     /// Disable per-unit state tracking
-    #[clap(long)]
+    #[clap(long, conflicts_with = "config")]
     no_unit_states: bool,
     /// Disable machine/container stats
-    #[clap(long)]
+    #[clap(long, conflicts_with = "config")]
     no_machines: bool,
     /// Specific timers to track
-    #[clap(long)]
+    #[clap(long, conflicts_with = "config")]
     timers: Vec<String>,
     /// Enable boot blame stats (slowest N units at boot)
-    #[clap(long)]
+    #[clap(long, conflicts_with = "config")]
     boot_blame: bool,
     /// Number of slowest boot blame units to report (requires --boot-blame)
-    #[clap(long, value_parser, default_value_t = 5, requires = "boot_blame")]
+    #[clap(
+        long,
+        value_parser,
+        default_value_t = 5,
+        requires = "boot_blame",
+        conflicts_with = "config"
+    )]
     boot_blame_count: u64,
     /// Enable unit verification stats (systemd-analyze verify)
-    #[clap(long)]
+    #[clap(long, conflicts_with = "config")]
     verify: bool,
 }
 
@@ -108,22 +147,32 @@ fn main() -> Result<()> {
 
     // TODO: See if we can supply services in the prometheus scrape as params
     // - This will probably need to move config parsing back into the request loop
-    // Generate a monitord config struct from CLI arguments
-    let mut monitord_config = monitord::config::Config::default();
-    monitord_config.monitord.dbus_address = args.dbus_address.clone();
-    monitord_config.networkd.enabled = !args.no_networkd;
-    monitord_config.networkd.link_state_dir = args.networkd_state_file_path.clone();
-    monitord_config.pid1.enabled = !args.no_pid1;
-    monitord_config.system_state.enabled = !args.no_system_state;
-    monitord_config.services.extend(args.services.clone());
-    monitord_config.timers.enabled = !args.no_timers;
-    monitord_config.timers.allowlist.extend(args.timers.clone());
-    monitord_config.dbus_stats.enabled = !args.no_dbus;
-    monitord_config.units.state_stats = !args.no_unit_states;
-    monitord_config.machines.enabled = !args.no_machines;
-    monitord_config.boot_blame.enabled = args.boot_blame;
-    monitord_config.boot_blame.num_slowest_units = args.boot_blame_count;
-    monitord_config.verify.enabled = args.verify;
+    // Generate a monitord config struct from a config file or CLI arguments
+    let monitord_config = if let Some(config_path) = &args.config {
+        info!("Loading monitord config from {:?}", config_path);
+        let mut ini = Ini::new();
+        ini.load(config_path)
+            .map_err(|e| anyhow::anyhow!("Failed to load config file {:?}: {}", config_path, e))?;
+        monitord::config::Config::try_from(ini)
+            .map_err(|e| anyhow::anyhow!("Failed to parse config file {:?}: {}", config_path, e))?
+    } else {
+        let mut config = monitord::config::Config::default();
+        config.monitord.dbus_address = args.dbus_address.clone();
+        config.networkd.enabled = !args.no_networkd;
+        config.networkd.link_state_dir = args.networkd_state_file_path.clone();
+        config.pid1.enabled = !args.no_pid1;
+        config.system_state.enabled = !args.no_system_state;
+        config.services.extend(args.services.clone());
+        config.timers.enabled = !args.no_timers;
+        config.timers.allowlist.extend(args.timers.clone());
+        config.dbus_stats.enabled = !args.no_dbus;
+        config.units.state_stats = !args.no_unit_states;
+        config.machines.enabled = !args.no_machines;
+        config.boot_blame.enabled = args.boot_blame;
+        config.boot_blame.num_slowest_units = args.boot_blame_count;
+        config.verify.enabled = args.verify;
+        config
+    };
     let rt = Runtime::new().expect("Unable to get an async runtime");
     loop {
         let guard = exporter.wait_request();

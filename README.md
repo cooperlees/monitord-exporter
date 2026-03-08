@@ -44,11 +44,22 @@ monitord-exporter -p 9090 --no-networkd --no-pid1
 # Full monitoring with boot blame and verification
 monitord-exporter -p 9090 -s ssh.service --boot-blame --boot-blame-count 10 --verify
 
+# Load settings from a monitord.conf file (>= 0.19.0)
+monitord-exporter -p 9090 -c /etc/monitord.conf
+
 # Debug logging
 monitord-exporter -p 9090 -l debug
 ```
 
 ## CLI Reference
+
+### Config file (>= 0.19.0)
+
+| Flag | Description |
+|------|-------------|
+| `-c, --config` | Path to a `monitord.conf` config file. Mutually exclusive with all other config arguments. |
+
+When `-c` is supplied the exporter reads all monitord settings (services, timers, feature toggles, D-Bus address, etc.) from the provided INI-format config file — the same file format used by the `monitord` daemon. Passing any other config flag together with `-c` is an error. The exporter-only flags `-p/--port` and `-l/--log-level` may still be used alongside `-c`.
 
 ### Core options
 
