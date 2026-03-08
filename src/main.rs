@@ -4,7 +4,6 @@ use std::thread;
 
 use anyhow::Result;
 use clap::Parser;
-use configparser::ini::Ini;
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 use tracing::debug;
@@ -150,28 +149,24 @@ fn main() -> Result<()> {
     // Generate a monitord config struct from a config file or CLI arguments
     let monitord_config = if let Some(config_path) = &args.config {
         info!("Loading monitord config from {:?}", config_path);
-        let mut ini = Ini::new();
-        ini.load(config_path)
-            .map_err(|e| anyhow::anyhow!("Failed to load config file {:?}: {}", config_path, e))?;
-        monitord::config::Config::try_from(ini)
-            .map_err(|e| anyhow::anyhow!("Failed to parse config file {:?}: {}", config_path, e))?
+        monitord_exporter::config::load_from_file(config_path)?
     } else {
-        let mut config = monitord::config::Config::default();
-        config.monitord.dbus_address = args.dbus_address.clone();
-        config.networkd.enabled = !args.no_networkd;
-        config.networkd.link_state_dir = args.networkd_state_file_path.clone();
-        config.pid1.enabled = !args.no_pid1;
-        config.system_state.enabled = !args.no_system_state;
-        config.services.extend(args.services.clone());
-        config.timers.enabled = !args.no_timers;
-        config.timers.allowlist.extend(args.timers.clone());
-        config.dbus_stats.enabled = !args.no_dbus;
-        config.units.state_stats = !args.no_unit_states;
-        config.machines.enabled = !args.no_machines;
-        config.boot_blame.enabled = args.boot_blame;
-        config.boot_blame.num_slowest_units = args.boot_blame_count;
-        config.verify.enabled = args.verify;
-        config
+        monitord_exporter::config::build_from_cli(
+            &args.dbus_address,
+            args.no_networkd,
+            &args.networkd_state_file_path,
+            args.no_pid1,
+            args.no_system_state,
+            &args.services,
+            args.no_timers,
+            &args.timers,
+            args.no_dbus,
+            args.no_unit_states,
+            args.no_machines,
+            args.boot_blame,
+            args.boot_blame_count,
+            args.verify,
+        )
     };
     let rt = Runtime::new().expect("Unable to get an async runtime");
     loop {
