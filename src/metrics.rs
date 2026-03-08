@@ -35,7 +35,7 @@ struct Pid1Stats {
 struct ServiceStats {
     active_enter_timestamp: GaugeVec,
     active_exit_timestamp: GaugeVec,
-    cpuuage_nsec: GaugeVec,
+    cpuusage_nsec: GaugeVec,
     inactive_exit_timestamp: GaugeVec,
     ioread_bytes: GaugeVec,
     ioread_operations: GaugeVec,
@@ -58,6 +58,7 @@ struct SystemStats {
 
 #[derive(Debug)]
 struct UnitStats {
+    activating_units: GaugeVec,
     active_units: GaugeVec,
     automount_units: GaugeVec,
     device_units: GaugeVec,
@@ -138,6 +139,8 @@ struct DBusPeerPromStats {
     incoming_fds: GaugeVec,
     outgoing_bytes: GaugeVec,
     outgoing_fds: GaugeVec,
+    activation_request_bytes: GaugeVec,
+    activation_request_fds: GaugeVec,
 }
 
 #[derive(Debug)]
@@ -160,6 +163,7 @@ struct VersionPromStats {
 #[derive(Debug)]
 struct MachinePromStats {
     system_state: GaugeVec,
+    activating_units: GaugeVec,
     active_units: GaugeVec,
     automount_units: GaugeVec,
     device_units: GaugeVec,
@@ -335,8 +339,8 @@ impl ServiceStats {
                 labels,
             )
             .unwrap(),
-            cpuuage_nsec: register_gauge_vec!(
-                "monitord_service_cpuuage_nsec",
+            cpuusage_nsec: register_gauge_vec!(
+                "monitord_service_cpuusage_nsec",
                 "CPU usage nano seconds",
                 labels,
             )
@@ -441,6 +445,12 @@ impl UnitStats {
     pub fn new() -> UnitStats {
         let no_labels = &[];
         UnitStats {
+            activating_units: register_gauge_vec!(
+                "monitord_units_activating_units",
+                "Count of units currently activating (in the process of being started)",
+                no_labels,
+            )
+            .unwrap(),
             active_units: register_gauge_vec!(
                 "monitord_units_active_units",
                 "Count of all active units",
@@ -830,6 +840,18 @@ impl DBusPeerPromStats {
                 labels,
             )
             .unwrap(),
+            activation_request_bytes: register_gauge_vec!(
+                "monitord_dbus_peer_activation_request_bytes",
+                "D-Bus peer activation request bytes",
+                labels,
+            )
+            .unwrap(),
+            activation_request_fds: register_gauge_vec!(
+                "monitord_dbus_peer_activation_request_fds",
+                "D-Bus peer activation request file descriptors",
+                labels,
+            )
+            .unwrap(),
         }
     }
 }
@@ -896,6 +918,12 @@ impl MachinePromStats {
             system_state: register_gauge_vec!(
                 "monitord_machine_system_state",
                 "Machine systemd system state (numeric; see systemd Manager.SystemState for values)",
+                labels,
+            )
+            .unwrap(),
+            activating_units: register_gauge_vec!(
+                "monitord_machine_units_activating_units",
+                "Machine count of units currently activating (in the process of being started)",
                 labels,
             )
             .unwrap(),
@@ -1290,7 +1318,7 @@ impl MonitordPromStats {
                 .with_label_values(service_labels)
                 .set((service_stats.active_exit_timestamp as i64) as f64);
             self.services
-                .cpuuage_nsec
+                .cpuusage_nsec
                 .with_label_values(service_labels)
                 .set((service_stats.cpuusage_nsec as i64) as f64);
             self.services
@@ -1356,6 +1384,10 @@ impl MonitordPromStats {
         }
 
         // Set all the unit stats
+        self.units
+            .activating_units
+            .with_label_values(no_labels)
+            .set(monitord_stats.units.activating_units as f64);
         self.units
             .active_units
             .with_label_values(no_labels)
@@ -1666,6 +1698,18 @@ impl MonitordPromStats {
                                 .with_label_values(labels)
                                 .set(v as f64);
                         }
+                        if let Some(v) = peer_stats.activation_request_bytes {
+                            self.dbus_peers
+                                .activation_request_bytes
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
+                        if let Some(v) = peer_stats.activation_request_fds {
+                            self.dbus_peers
+                                .activation_request_fds
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
                     }
                 }
             }
@@ -1695,6 +1739,10 @@ impl MonitordPromStats {
                     .system_state
                     .with_label_values(labels)
                     .set((machine_stats.system_state as u64) as f64);
+                self.machines
+                    .activating_units
+                    .with_label_values(labels)
+                    .set(machine_stats.units.activating_units as f64);
                 self.machines
                     .active_units
                     .with_label_values(labels)
