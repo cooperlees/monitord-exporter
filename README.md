@@ -145,7 +145,18 @@ Reports the running systemd version: `major` (numeric) and `info` (labeled with 
 
 ### Machine/container metrics (`monitord_machine_*`)
 
-Mirrors host metrics (system_state, units, pid1, service, networkd, boot_blame, verify) per machine/container, labeled by `machine_name`.
+Mirrors host metrics per machine/container, labeled by `machine_name`:
+
+- **system_state** — systemd system state (numeric)
+- **units** — unit counts by type (activating, active, failed, etc.)
+- **pid1** — PID 1 CPU, memory, FDs, tasks
+- **service** — per-service stats (labeled by `machine_name` + `service_name`)
+- **networkd** — managed interface count
+- **timer** — per-timer stats (labeled by `machine_name` + `timer_name`; gated by `--no-timers`)
+- **unit_state** — per-unit active/load state (labeled by `machine_name` + `unit_name`; gated by `--no-unit-states`)
+- **version** — systemd version inside the machine (`major` numeric, `info` labeled with version string)
+- **boot_blame** — slowest boot units (gated by `--boot-blame`)
+- **verify** — unit verification failures (gated by `--verify`)
 
 ## Prometheus Scrape Config
 

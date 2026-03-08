@@ -209,6 +209,23 @@ struct MachinePromStats {
     boot_blame_activation_time_seconds: GaugeVec,
     verify_total: CounterVec,
     verify_by_type: GaugeVec,
+    version_major: GaugeVec,
+    version_info: GaugeVec,
+    timer_accuracy_usec: GaugeVec,
+    timer_fixed_random_delay: GaugeVec,
+    timer_last_trigger_usec: GaugeVec,
+    timer_last_trigger_usec_monotonic: GaugeVec,
+    timer_next_elapse_usec_monotonic: GaugeVec,
+    timer_next_elapse_usec_realtime: GaugeVec,
+    timer_stat_persistent: GaugeVec,
+    timer_randomized_delay_usec: GaugeVec,
+    timer_stat_remain_after_elapse: GaugeVec,
+    timer_service_unit_last_state_change_usec: GaugeVec,
+    timer_service_unit_last_state_change_usec_monotonic: GaugeVec,
+    unit_state_active_state: GaugeVec,
+    unit_state_load_state: GaugeVec,
+    unit_state_unhealthy: GaugeVec,
+    unit_state_time_in_state_usecs: GaugeVec,
 }
 
 #[derive(Debug)]
@@ -1197,6 +1214,108 @@ impl MachinePromStats {
                 &["machine_name", "unit_type"],
             )
             .unwrap(),
+            version_major: register_gauge_vec!(
+                "monitord_machine_systemd_version_major",
+                "Machine major systemd version number",
+                labels,
+            )
+            .unwrap(),
+            version_info: register_gauge_vec!(
+                "monitord_machine_systemd_version_info",
+                "Machine systemd version info",
+                &["machine_name", "version"],
+            )
+            .unwrap(),
+            timer_accuracy_usec: register_gauge_vec!(
+                "monitord_machine_timer_accuracy_usec",
+                "Machine timer accuracy in microseconds",
+                &["machine_name", "timer_name"],
+            )
+            .unwrap(),
+            timer_fixed_random_delay: register_gauge_vec!(
+                "monitord_machine_timer_fixed_random_delay",
+                "Machine timer fixed random delay",
+                &["machine_name", "timer_name"],
+            )
+            .unwrap(),
+            timer_last_trigger_usec: register_gauge_vec!(
+                "monitord_machine_timer_last_trigger_usec",
+                "Machine timer last trigger time in microseconds",
+                &["machine_name", "timer_name"],
+            )
+            .unwrap(),
+            timer_last_trigger_usec_monotonic: register_gauge_vec!(
+                "monitord_machine_timer_last_trigger_usec_monotonic",
+                "Machine timer last trigger monotonic time in microseconds",
+                &["machine_name", "timer_name"],
+            )
+            .unwrap(),
+            timer_next_elapse_usec_monotonic: register_gauge_vec!(
+                "monitord_machine_timer_next_elapse_usec_monotonic",
+                "Machine timer next elapse monotonic time in microseconds",
+                &["machine_name", "timer_name"],
+            )
+            .unwrap(),
+            timer_next_elapse_usec_realtime: register_gauge_vec!(
+                "monitord_machine_timer_next_elapse_usec_realtime",
+                "Machine timer next elapse realtime in microseconds",
+                &["machine_name", "timer_name"],
+            )
+            .unwrap(),
+            timer_stat_persistent: register_gauge_vec!(
+                "monitord_machine_timer_persistent",
+                "Machine timer persistent flag",
+                &["machine_name", "timer_name"],
+            )
+            .unwrap(),
+            timer_randomized_delay_usec: register_gauge_vec!(
+                "monitord_machine_timer_randomized_delay_usec",
+                "Machine timer randomized delay in microseconds",
+                &["machine_name", "timer_name"],
+            )
+            .unwrap(),
+            timer_stat_remain_after_elapse: register_gauge_vec!(
+                "monitord_machine_timer_remain_after_elapse",
+                "Machine timer remain after elapse flag",
+                &["machine_name", "timer_name"],
+            )
+            .unwrap(),
+            timer_service_unit_last_state_change_usec: register_gauge_vec!(
+                "monitord_machine_timer_service_unit_last_state_change_usec",
+                "Machine timer service unit last state change time in microseconds",
+                &["machine_name", "timer_name"],
+            )
+            .unwrap(),
+            timer_service_unit_last_state_change_usec_monotonic: register_gauge_vec!(
+                "monitord_machine_timer_service_unit_last_state_change_usec_monotonic",
+                "Machine timer service unit last state change monotonic time in microseconds",
+                &["machine_name", "timer_name"],
+            )
+            .unwrap(),
+            unit_state_active_state: register_gauge_vec!(
+                "monitord_machine_unit_state_active_state",
+                "Machine per-unit active state (numeric)",
+                &["machine_name", "unit_name"],
+            )
+            .unwrap(),
+            unit_state_load_state: register_gauge_vec!(
+                "monitord_machine_unit_state_load_state",
+                "Machine per-unit load state (numeric)",
+                &["machine_name", "unit_name"],
+            )
+            .unwrap(),
+            unit_state_unhealthy: register_gauge_vec!(
+                "monitord_machine_unit_state_unhealthy",
+                "Machine per-unit unhealthy flag",
+                &["machine_name", "unit_name"],
+            )
+            .unwrap(),
+            unit_state_time_in_state_usecs: register_gauge_vec!(
+                "monitord_machine_unit_state_time_in_state_usecs",
+                "Machine per-unit time in current state in microseconds",
+                &["machine_name", "unit_name"],
+            )
+            .unwrap(),
         }
     }
 }
@@ -1947,6 +2066,96 @@ impl MonitordPromStats {
                                 .with_label_values(vt_labels)
                                 .set(*count as f64);
                         }
+                    }
+                }
+
+                // Machine version stats
+                let version_str = machine_stats.version.to_string();
+                let version_major: f64 = version_str
+                    .split('.')
+                    .next()
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(0) as f64;
+                self.machines
+                    .version_major
+                    .with_label_values(labels)
+                    .set(version_major);
+                self.machines
+                    .version_info
+                    .with_label_values(&[machine_name.as_str(), version_str.as_str()])
+                    .set(1.0);
+
+                // Machine timer stats
+                if config.timers.enabled {
+                    for (timer_name, timer_stats) in machine_stats.units.timer_stats.iter() {
+                        let t_labels = &[machine_name.as_str(), timer_name.as_str()];
+                        self.machines
+                            .timer_accuracy_usec
+                            .with_label_values(t_labels)
+                            .set(timer_stats.accuracy_usec as f64);
+                        self.machines
+                            .timer_fixed_random_delay
+                            .with_label_values(t_labels)
+                            .set(timer_stats.fixed_random_delay as u64 as f64);
+                        self.machines
+                            .timer_last_trigger_usec
+                            .with_label_values(t_labels)
+                            .set(timer_stats.last_trigger_usec as f64);
+                        self.machines
+                            .timer_last_trigger_usec_monotonic
+                            .with_label_values(t_labels)
+                            .set(timer_stats.last_trigger_usec_monotonic as f64);
+                        self.machines
+                            .timer_next_elapse_usec_monotonic
+                            .with_label_values(t_labels)
+                            .set(timer_stats.next_elapse_usec_monotonic as f64);
+                        self.machines
+                            .timer_next_elapse_usec_realtime
+                            .with_label_values(t_labels)
+                            .set(timer_stats.next_elapse_usec_realtime as f64);
+                        self.machines
+                            .timer_stat_persistent
+                            .with_label_values(t_labels)
+                            .set(timer_stats.persistent as u64 as f64);
+                        self.machines
+                            .timer_randomized_delay_usec
+                            .with_label_values(t_labels)
+                            .set(timer_stats.randomized_delay_usec as f64);
+                        self.machines
+                            .timer_stat_remain_after_elapse
+                            .with_label_values(t_labels)
+                            .set(timer_stats.remain_after_elapse as u64 as f64);
+                        self.machines
+                            .timer_service_unit_last_state_change_usec
+                            .with_label_values(t_labels)
+                            .set(timer_stats.service_unit_last_state_change_usec as f64);
+                        self.machines
+                            .timer_service_unit_last_state_change_usec_monotonic
+                            .with_label_values(t_labels)
+                            .set(timer_stats.service_unit_last_state_change_usec_monotonic as f64);
+                    }
+                }
+
+                // Machine unit states
+                if config.units.state_stats {
+                    for (unit_name, unit_state) in machine_stats.units.unit_states.iter() {
+                        let u_labels = &[machine_name.as_str(), unit_name.as_str()];
+                        self.machines
+                            .unit_state_active_state
+                            .with_label_values(u_labels)
+                            .set((unit_state.active_state as i64) as f64);
+                        self.machines
+                            .unit_state_load_state
+                            .with_label_values(u_labels)
+                            .set((unit_state.load_state as i64) as f64);
+                        self.machines
+                            .unit_state_unhealthy
+                            .with_label_values(u_labels)
+                            .set(unit_state.unhealthy as u64 as f64);
+                        self.machines
+                            .unit_state_time_in_state_usecs
+                            .with_label_values(u_labels)
+                            .set(unit_state.time_in_state_usecs.unwrap_or(0) as f64);
                     }
                 }
             }
