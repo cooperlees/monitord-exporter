@@ -22,10 +22,9 @@ cargo run -- -p 9090 -s ssh.service -l debug  # Run locally on port 9090 monitor
 **Releasing a new version:**
 
 1. Increment the version in `Cargo.toml`
-2. Run `./build_docs.sh` to regenerate docs
-3. Commit with message: `Move to version X.Y.Z for release + update docs`
-4. If you have commit bit, push directly to main. Otherwise, push a branch and open a PR.
-5. Cut a GitHub release: `gh release create X.Y.Z --title "X.Y.Z" --generate-notes`
+2. Commit with message: `Move to version X.Y.Z for release + update docs`
+3. If you have commit bit, push directly to main. Otherwise, push a branch and open a PR.
+4. Cut a GitHub release: `gh release create X.Y.Z --title "X.Y.Z" --generate-notes`
 
 ## Architecture
 
