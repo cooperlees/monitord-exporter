@@ -169,14 +169,18 @@ fn main() -> Result<()> {
         )
     };
     let rt = Runtime::new().expect("Unable to get an async runtime");
+    let mut cached_dbus_connection: Option<zbus::Connection> = None;
     loop {
         let guard = exporter.wait_request();
         let locked_monitord_stats = Arc::new(RwLock::new(monitord::MonitordStats::default()));
-        rt.block_on(monitord::stat_collector(
-            monitord_config.clone(),
-            Some(locked_monitord_stats.clone()),
-            false,
-        ))?;
+        cached_dbus_connection = rt
+            .block_on(monitord::stat_collector(
+                monitord_config.clone(),
+                Some(locked_monitord_stats.clone()),
+                false,
+                cached_dbus_connection.take(),
+            ))
+            .map_err(anyhow::Error::from)?;
         let monitord_stats = rt.block_on(locked_monitord_stats.read());
         debug!("Stats collected: {:?}", monitord_stats);
         // Convert monitord stats into prometheus objects
