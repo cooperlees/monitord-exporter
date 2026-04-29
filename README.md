@@ -94,6 +94,7 @@ When `-c` is supplied the exporter reads all monitord settings (services, timers
 |------|---------|-------------|
 | `--boot-blame` | disabled | Enable boot blame stats (requires `systemd-analyze`) |
 | `--boot-blame-count` | `5` | Number of slowest boot units to report (requires `--boot-blame`) |
+| `--no-boot-cache` | cache enabled | Disable boot blame result caching (requires `--boot-blame`) |
 
 ### Other
 
@@ -141,6 +142,10 @@ System-wide D-Bus stats: serial, active_connections, incomplete_connections, bus
 Per-UID stats (`monitord_dbus_user_*`): bytes_cur, bytes_max, fds_cur, fds_max, matches_cur, matches_max, objects_cur, objects_max.
 
 Per-peer stats (`monitord_dbus_peer_*`): name_objects, matches, match_bytes, reply_objects, incoming_bytes, incoming_fds, outgoing_bytes, outgoing_fds.
+
+### Collection stats (`monitord_stat_collection_run_time_ms`)
+
+End-to-end duration of the last monitord stat collection run in milliseconds. Always exported; useful for tracking collection overhead.
 
 ### Boot blame metrics (`monitord_boot_blame_*`)
 

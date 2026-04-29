@@ -29,6 +29,7 @@ pub fn build_from_cli(
     no_machines: bool,
     boot_blame: bool,
     boot_blame_count: u64,
+    no_boot_cache: bool,
     verify: bool,
 ) -> monitord::config::Config {
     let mut config = monitord::config::Config::default();
@@ -45,6 +46,7 @@ pub fn build_from_cli(
     config.machines.enabled = !no_machines;
     config.boot_blame.enabled = boot_blame;
     config.boot_blame.num_slowest_units = boot_blame_count;
+    config.boot_blame.cache_enabled = !no_boot_cache;
     config.verify.enabled = verify;
     config
 }
@@ -258,6 +260,7 @@ output_format = json
             false, // no_machines
             false, // boot_blame
             5,
+            false, // no_boot_cache
             false, // verify
         );
 
@@ -280,6 +283,7 @@ output_format = json
         assert!(config.machines.enabled);
         assert!(!config.boot_blame.enabled);
         assert_eq!(config.boot_blame.num_slowest_units, 5);
+        assert!(config.boot_blame.cache_enabled);
         assert!(!config.verify.enabled);
     }
 
@@ -299,6 +303,7 @@ output_format = json
             true, // no_machines
             true, // boot_blame
             15,
+            true, // no_boot_cache
             true, // verify
         );
 
@@ -319,6 +324,7 @@ output_format = json
         assert!(!config.machines.enabled);
         assert!(config.boot_blame.enabled);
         assert_eq!(config.boot_blame.num_slowest_units, 15);
+        assert!(!config.boot_blame.cache_enabled);
         assert!(config.verify.enabled);
     }
 }

@@ -26,6 +26,7 @@ const CONFIG_CONFLICTS: &[&str] = &[
     "timers",
     "boot_blame",
     "boot_blame_count",
+    "no_boot_cache",
     "verify",
 ];
 
@@ -104,6 +105,9 @@ struct Cli {
         conflicts_with = "config"
     )]
     boot_blame_count: u64,
+    /// Disable boot blame result caching (requires --boot-blame)
+    #[clap(long, requires = "boot_blame", conflicts_with = "config")]
+    no_boot_cache: bool,
     /// Enable unit verification stats (systemd-analyze verify)
     #[clap(long, conflicts_with = "config")]
     verify: bool,
@@ -165,6 +169,7 @@ fn main() -> Result<()> {
             args.no_machines,
             args.boot_blame,
             args.boot_blame_count,
+            args.no_boot_cache,
             args.verify,
         )
     };
