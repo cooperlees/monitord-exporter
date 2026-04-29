@@ -155,6 +155,11 @@ struct VerifyPromStats {
 }
 
 #[derive(Debug)]
+struct CollectionStats {
+    stat_collection_run_time_ms: GaugeVec,
+}
+
+#[derive(Debug)]
 struct VersionPromStats {
     version_major: GaugeVec,
     version_info: GaugeVec,
@@ -244,6 +249,7 @@ pub struct MonitordPromStats {
     machines: MachinePromStats,
     boot_blame: BootBlamePromStats,
     verify: VerifyPromStats,
+    collection: CollectionStats,
 }
 
 impl NetworkdInterfaceStats {
@@ -873,6 +879,19 @@ impl DBusPeerPromStats {
     }
 }
 
+impl CollectionStats {
+    pub fn new() -> CollectionStats {
+        CollectionStats {
+            stat_collection_run_time_ms: register_gauge_vec!(
+                "monitord_stat_collection_run_time_ms",
+                "End-to-end duration of the last monitord stat collection run in milliseconds",
+                &[],
+            )
+            .unwrap(),
+        }
+    }
+}
+
 impl VersionPromStats {
     pub fn new() -> VersionPromStats {
         VersionPromStats {
@@ -1337,6 +1356,7 @@ impl MonitordPromStats {
             machines: MachinePromStats::new(),
             boot_blame: BootBlamePromStats::new(),
             verify: VerifyPromStats::new(),
+            collection: CollectionStats::new(),
         }
     }
 
@@ -2187,6 +2207,12 @@ impl MonitordPromStats {
                 }
             }
         }
+
+        // Set stat collection run time
+        self.collection
+            .stat_collection_run_time_ms
+            .with_label_values(no_labels)
+            .set(monitord_stats.stat_collection_run_time_ms);
     }
 }
 
