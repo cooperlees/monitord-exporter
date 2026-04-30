@@ -160,6 +160,22 @@ struct CollectionStats {
 }
 
 #[derive(Debug)]
+struct CollectorTimingPromStats {
+    start_offset_ms: GaugeVec,
+    elapsed_ms: GaugeVec,
+    success: GaugeVec,
+}
+
+#[derive(Debug)]
+struct UnitsCollectionTimingsPromStats {
+    list_units_ms: GaugeVec,
+    per_unit_loop_ms: GaugeVec,
+    timer_dbus_fetches: GaugeVec,
+    state_dbus_fetches: GaugeVec,
+    service_dbus_fetches: GaugeVec,
+}
+
+#[derive(Debug)]
 struct VersionPromStats {
     version_major: GaugeVec,
     version_info: GaugeVec,
@@ -231,6 +247,11 @@ struct MachinePromStats {
     unit_state_load_state: GaugeVec,
     unit_state_unhealthy: GaugeVec,
     unit_state_time_in_state_usecs: GaugeVec,
+    units_collection_list_units_ms: GaugeVec,
+    units_collection_per_unit_loop_ms: GaugeVec,
+    units_collection_timer_dbus_fetches: GaugeVec,
+    units_collection_state_dbus_fetches: GaugeVec,
+    units_collection_service_dbus_fetches: GaugeVec,
 }
 
 #[derive(Debug)]
@@ -250,6 +271,8 @@ pub struct MonitordPromStats {
     boot_blame: BootBlamePromStats,
     verify: VerifyPromStats,
     collection: CollectionStats,
+    collector_timings: CollectorTimingPromStats,
+    units_collection: UnitsCollectionTimingsPromStats,
 }
 
 impl NetworkdInterfaceStats {
@@ -892,6 +915,69 @@ impl CollectionStats {
     }
 }
 
+impl CollectorTimingPromStats {
+    pub fn new() -> CollectorTimingPromStats {
+        let labels = &["collector"];
+        CollectorTimingPromStats {
+            start_offset_ms: register_gauge_vec!(
+                "monitord_collector_start_offset_ms",
+                "Milliseconds from the top of the collection cycle until this collector's future was first polled",
+                labels,
+            )
+            .unwrap(),
+            elapsed_ms: register_gauge_vec!(
+                "monitord_collector_elapsed_ms",
+                "Milliseconds from first poll to completion for this collector",
+                labels,
+            )
+            .unwrap(),
+            success: register_gauge_vec!(
+                "monitord_collector_success",
+                "1 if the collector returned Ok in the last run, 0 otherwise",
+                labels,
+            )
+            .unwrap(),
+        }
+    }
+}
+
+impl UnitsCollectionTimingsPromStats {
+    pub fn new() -> UnitsCollectionTimingsPromStats {
+        UnitsCollectionTimingsPromStats {
+            list_units_ms: register_gauge_vec!(
+                "monitord_units_collection_list_units_ms",
+                "Milliseconds for the systemd ListUnits D-Bus call (one batched call returning all units)",
+                &[],
+            )
+            .unwrap(),
+            per_unit_loop_ms: register_gauge_vec!(
+                "monitord_units_collection_per_unit_loop_ms",
+                "Milliseconds spent in the per-unit parse loop, including any per-unit D-Bus calls",
+                &[],
+            )
+            .unwrap(),
+            timer_dbus_fetches: register_gauge_vec!(
+                "monitord_units_collection_timer_dbus_fetches",
+                "Count of timer D-Bus property fetches in the last units collector run",
+                &[],
+            )
+            .unwrap(),
+            state_dbus_fetches: register_gauge_vec!(
+                "monitord_units_collection_state_dbus_fetches",
+                "Count of unit-state D-Bus fetches in the last units collector run",
+                &[],
+            )
+            .unwrap(),
+            service_dbus_fetches: register_gauge_vec!(
+                "monitord_units_collection_service_dbus_fetches",
+                "Count of per-service D-Bus property fetches in the last units collector run",
+                &[],
+            )
+            .unwrap(),
+        }
+    }
+}
+
 impl VersionPromStats {
     pub fn new() -> VersionPromStats {
         VersionPromStats {
@@ -1335,6 +1421,36 @@ impl MachinePromStats {
                 &["machine_name", "unit_name"],
             )
             .unwrap(),
+            units_collection_list_units_ms: register_gauge_vec!(
+                "monitord_machine_units_collection_list_units_ms",
+                "Machine ListUnits D-Bus call time in milliseconds",
+                labels,
+            )
+            .unwrap(),
+            units_collection_per_unit_loop_ms: register_gauge_vec!(
+                "monitord_machine_units_collection_per_unit_loop_ms",
+                "Machine per-unit parse loop time in milliseconds",
+                labels,
+            )
+            .unwrap(),
+            units_collection_timer_dbus_fetches: register_gauge_vec!(
+                "monitord_machine_units_collection_timer_dbus_fetches",
+                "Machine count of timer D-Bus property fetches in the last units collector run",
+                labels,
+            )
+            .unwrap(),
+            units_collection_state_dbus_fetches: register_gauge_vec!(
+                "monitord_machine_units_collection_state_dbus_fetches",
+                "Machine count of unit-state D-Bus fetches in the last units collector run",
+                labels,
+            )
+            .unwrap(),
+            units_collection_service_dbus_fetches: register_gauge_vec!(
+                "monitord_machine_units_collection_service_dbus_fetches",
+                "Machine count of per-service D-Bus property fetches in the last units collector run",
+                labels,
+            )
+            .unwrap(),
         }
     }
 }
@@ -1357,6 +1473,8 @@ impl MonitordPromStats {
             boot_blame: BootBlamePromStats::new(),
             verify: VerifyPromStats::new(),
             collection: CollectionStats::new(),
+            collector_timings: CollectorTimingPromStats::new(),
+            units_collection: UnitsCollectionTimingsPromStats::new(),
         }
     }
 
@@ -2178,6 +2296,29 @@ impl MonitordPromStats {
                             .set(unit_state.time_in_state_usecs.unwrap_or(0) as f64);
                     }
                 }
+
+                // Machine units inner-collection timings
+                let m_units_timings = &machine_stats.units.collection_timings;
+                self.machines
+                    .units_collection_list_units_ms
+                    .with_label_values(labels)
+                    .set(m_units_timings.list_units_ms);
+                self.machines
+                    .units_collection_per_unit_loop_ms
+                    .with_label_values(labels)
+                    .set(m_units_timings.per_unit_loop_ms);
+                self.machines
+                    .units_collection_timer_dbus_fetches
+                    .with_label_values(labels)
+                    .set(m_units_timings.timer_dbus_fetches as f64);
+                self.machines
+                    .units_collection_state_dbus_fetches
+                    .with_label_values(labels)
+                    .set(m_units_timings.state_dbus_fetches as f64);
+                self.machines
+                    .units_collection_service_dbus_fetches
+                    .with_label_values(labels)
+                    .set(m_units_timings.service_dbus_fetches as f64);
             }
         }
 
@@ -2213,6 +2354,46 @@ impl MonitordPromStats {
             .stat_collection_run_time_ms
             .with_label_values(no_labels)
             .set(monitord_stats.stat_collection_run_time_ms);
+
+        // Set per-collector timings from the last run
+        for ct in monitord_stats.collector_timings.iter() {
+            let labels = &[ct.name.as_str()];
+            self.collector_timings
+                .start_offset_ms
+                .with_label_values(labels)
+                .set(ct.start_offset_ms);
+            self.collector_timings
+                .elapsed_ms
+                .with_label_values(labels)
+                .set(ct.elapsed_ms);
+            self.collector_timings
+                .success
+                .with_label_values(labels)
+                .set(ct.success as u64 as f64);
+        }
+
+        // Set host units inner-collection timings
+        let host_units_timings = &monitord_stats.units.collection_timings;
+        self.units_collection
+            .list_units_ms
+            .with_label_values(no_labels)
+            .set(host_units_timings.list_units_ms);
+        self.units_collection
+            .per_unit_loop_ms
+            .with_label_values(no_labels)
+            .set(host_units_timings.per_unit_loop_ms);
+        self.units_collection
+            .timer_dbus_fetches
+            .with_label_values(no_labels)
+            .set(host_units_timings.timer_dbus_fetches as f64);
+        self.units_collection
+            .state_dbus_fetches
+            .with_label_values(no_labels)
+            .set(host_units_timings.state_dbus_fetches as f64);
+        self.units_collection
+            .service_dbus_fetches
+            .with_label_values(no_labels)
+            .set(host_units_timings.service_dbus_fetches as f64);
     }
 }
 
