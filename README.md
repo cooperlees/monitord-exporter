@@ -147,6 +147,26 @@ Per-peer stats (`monitord_dbus_peer_*`): name_objects, matches, match_bytes, rep
 
 End-to-end duration of the last monitord stat collection run in milliseconds. Always exported; useful for tracking collection overhead.
 
+### Collector timing metrics (`monitord_collector_*`, `monitord_units_collection_*`)
+
+Per-collector wall-time breakdown of the last `stat_collector` cycle, plus the inner D-Bus phase breakdown of the units collector. Always exported.
+
+Per-collector gauges (labeled by `collector`, e.g. `units`, `pid1`, `dbus_stats`, `boot_blame`, `verify`, `version`, `system_state`, `networkd`, `machines`):
+
+- `monitord_collector_start_offset_ms` — ms from the top of the cycle to the collector future's first poll. Sub-ms when collectors run in parallel; a non-trivial value means the spawn loop or runtime is delaying first poll.
+- `monitord_collector_elapsed_ms` — ms from first poll to completion.
+- `monitord_collector_success` — `1` if the collector returned `Ok`, else `0`.
+
+Units collector inner phases (no labels):
+
+- `monitord_units_collection_list_units_ms` — time of the systemd `ListUnits` D-Bus call (one batched call returning all units).
+- `monitord_units_collection_per_unit_loop_ms` — time spent in the per-unit parse loop, including any per-unit D-Bus calls.
+- `monitord_units_collection_timer_dbus_fetches` — count of timer D-Bus property fetches this run.
+- `monitord_units_collection_state_dbus_fetches` — count of unit-state D-Bus fetches this run.
+- `monitord_units_collection_service_dbus_fetches` — count of per-service D-Bus property fetches this run.
+
+Comparing `sum(monitord_collector_elapsed_ms) / monitord_stat_collection_run_time_ms` gives an effective parallelism ratio (`≈ N` means N-way parallelism, `≈ 1` means effectively serial).
+
 ### Boot blame metrics (`monitord_boot_blame_*`)
 
 Enabled with `--boot-blame`. Reports the N slowest units at boot: `activation_time_seconds` (labeled by `unit_name`).
@@ -173,6 +193,7 @@ Mirrors host metrics per machine/container, labeled by `machine_name`:
 - **version** — systemd version inside the machine (`major` numeric, `info` labeled with version string)
 - **boot_blame** — slowest boot units (gated by `--boot-blame`)
 - **verify** — unit verification failures (gated by `--verify`)
+- **units_collection** — per-machine units collector inner timings (`monitord_machine_units_collection_{list_units_ms,per_unit_loop_ms,timer_dbus_fetches,state_dbus_fetches,service_dbus_fetches}`)
 
 ## Prometheus Scrape Config
 
