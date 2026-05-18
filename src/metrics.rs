@@ -1781,6 +1781,8 @@ impl MonitordPromStats {
             .total_units
             .with_label_values(no_labels)
             .set(monitord_stats.units.total_units as f64);
+        self.unit_files.generated.reset();
+        self.unit_files.transient.reset();
         for (unit_type, count) in monitord_stats.units.unit_files.root.generated.iter() {
             self.unit_files
                 .generated
@@ -2070,6 +2072,8 @@ impl MonitordPromStats {
 
         // Set machine stats
         if config.machines.enabled {
+            self.machines.unit_files_generated.reset();
+            self.machines.unit_files_transient.reset();
             for (machine_name, machine_stats) in monitord_stats.machines.iter() {
                 let labels = &[machine_name.as_str()];
                 self.machines
