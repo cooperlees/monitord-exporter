@@ -82,6 +82,12 @@ struct UnitStats {
 }
 
 #[derive(Debug)]
+struct UnitFilesPromStats {
+    generated: GaugeVec,
+    transient: GaugeVec,
+}
+
+#[derive(Debug)]
 struct TimerPromStats {
     accuracy_usec: GaugeVec,
     fixed_random_delay: GaugeVec,
@@ -169,6 +175,7 @@ struct CollectorTimingPromStats {
 #[derive(Debug)]
 struct UnitsCollectionTimingsPromStats {
     list_units_ms: GaugeVec,
+    unit_files_ms: GaugeVec,
     per_unit_loop_ms: GaugeVec,
     timer_dbus_fetches: GaugeVec,
     state_dbus_fetches: GaugeVec,
@@ -247,7 +254,10 @@ struct MachinePromStats {
     unit_state_load_state: GaugeVec,
     unit_state_unhealthy: GaugeVec,
     unit_state_time_in_state_usecs: GaugeVec,
+    unit_files_generated: GaugeVec,
+    unit_files_transient: GaugeVec,
     units_collection_list_units_ms: GaugeVec,
+    units_collection_unit_files_ms: GaugeVec,
     units_collection_per_unit_loop_ms: GaugeVec,
     units_collection_timer_dbus_fetches: GaugeVec,
     units_collection_state_dbus_fetches: GaugeVec,
@@ -261,6 +271,7 @@ pub struct MonitordPromStats {
     services: ServiceStats,
     system: SystemStats,
     units: UnitStats,
+    unit_files: UnitFilesPromStats,
     timers: TimerPromStats,
     unit_states: UnitStatesPromStats,
     dbus: DBusPromStats,
@@ -695,6 +706,26 @@ impl TimerPromStats {
     }
 }
 
+impl UnitFilesPromStats {
+    pub fn new() -> UnitFilesPromStats {
+        let labels = &["scope", "unit_type"];
+        UnitFilesPromStats {
+            generated: register_gauge_vec!(
+                "monitord_unit_files_generated",
+                "Count of generated unit files by scope and unit type",
+                labels,
+            )
+            .unwrap(),
+            transient: register_gauge_vec!(
+                "monitord_unit_files_transient",
+                "Count of transient unit files by scope and unit type",
+                labels,
+            )
+            .unwrap(),
+        }
+    }
+}
+
 impl UnitStatesPromStats {
     pub fn new() -> UnitStatesPromStats {
         let labels = &["unit_name"];
@@ -947,6 +978,12 @@ impl UnitsCollectionTimingsPromStats {
             list_units_ms: register_gauge_vec!(
                 "monitord_units_collection_list_units_ms",
                 "Milliseconds for the systemd ListUnits D-Bus call (one batched call returning all units)",
+                &[],
+            )
+            .unwrap(),
+            unit_files_ms: register_gauge_vec!(
+                "monitord_units_collection_unit_files_ms",
+                "Milliseconds for filesystem unit file stats collection",
                 &[],
             )
             .unwrap(),
@@ -1421,9 +1458,27 @@ impl MachinePromStats {
                 &["machine_name", "unit_name"],
             )
             .unwrap(),
+            unit_files_generated: register_gauge_vec!(
+                "monitord_machine_unit_files_generated",
+                "Machine count of generated unit files by scope and unit type",
+                &["machine_name", "scope", "unit_type"],
+            )
+            .unwrap(),
+            unit_files_transient: register_gauge_vec!(
+                "monitord_machine_unit_files_transient",
+                "Machine count of transient unit files by scope and unit type",
+                &["machine_name", "scope", "unit_type"],
+            )
+            .unwrap(),
             units_collection_list_units_ms: register_gauge_vec!(
                 "monitord_machine_units_collection_list_units_ms",
                 "Machine ListUnits D-Bus call time in milliseconds",
+                labels,
+            )
+            .unwrap(),
+            units_collection_unit_files_ms: register_gauge_vec!(
+                "monitord_machine_units_collection_unit_files_ms",
+                "Machine filesystem unit file stats collection time in milliseconds",
                 labels,
             )
             .unwrap(),
@@ -1463,6 +1518,7 @@ impl MonitordPromStats {
             services: ServiceStats::new(),
             system: SystemStats::new(),
             units: UnitStats::new(),
+            unit_files: UnitFilesPromStats::new(),
             timers: TimerPromStats::new(),
             unit_states: UnitStatesPromStats::new(),
             dbus: DBusPromStats::new(),
@@ -1725,6 +1781,32 @@ impl MonitordPromStats {
             .total_units
             .with_label_values(no_labels)
             .set(monitord_stats.units.total_units as f64);
+        self.unit_files.generated.reset();
+        self.unit_files.transient.reset();
+        for (unit_type, count) in monitord_stats.units.unit_files.root.generated.iter() {
+            self.unit_files
+                .generated
+                .with_label_values(&["root", unit_type.as_str()])
+                .set(*count as f64);
+        }
+        for (unit_type, count) in monitord_stats.units.unit_files.root.transient.iter() {
+            self.unit_files
+                .transient
+                .with_label_values(&["root", unit_type.as_str()])
+                .set(*count as f64);
+        }
+        for (unit_type, count) in monitord_stats.units.unit_files.user.generated.iter() {
+            self.unit_files
+                .generated
+                .with_label_values(&["user", unit_type.as_str()])
+                .set(*count as f64);
+        }
+        for (unit_type, count) in monitord_stats.units.unit_files.user.transient.iter() {
+            self.unit_files
+                .transient
+                .with_label_values(&["user", unit_type.as_str()])
+                .set(*count as f64);
+        }
 
         // Set timer stats
         if config.timers.enabled {
@@ -1990,6 +2072,8 @@ impl MonitordPromStats {
 
         // Set machine stats
         if config.machines.enabled {
+            self.machines.unit_files_generated.reset();
+            self.machines.unit_files_transient.reset();
             for (machine_name, machine_stats) in monitord_stats.machines.iter() {
                 let labels = &[machine_name.as_str()];
                 self.machines
@@ -2296,6 +2380,30 @@ impl MonitordPromStats {
                             .set(unit_state.time_in_state_usecs.unwrap_or(0) as f64);
                     }
                 }
+                for (unit_type, count) in machine_stats.units.unit_files.root.generated.iter() {
+                    self.machines
+                        .unit_files_generated
+                        .with_label_values(&[machine_name.as_str(), "root", unit_type.as_str()])
+                        .set(*count as f64);
+                }
+                for (unit_type, count) in machine_stats.units.unit_files.root.transient.iter() {
+                    self.machines
+                        .unit_files_transient
+                        .with_label_values(&[machine_name.as_str(), "root", unit_type.as_str()])
+                        .set(*count as f64);
+                }
+                for (unit_type, count) in machine_stats.units.unit_files.user.generated.iter() {
+                    self.machines
+                        .unit_files_generated
+                        .with_label_values(&[machine_name.as_str(), "user", unit_type.as_str()])
+                        .set(*count as f64);
+                }
+                for (unit_type, count) in machine_stats.units.unit_files.user.transient.iter() {
+                    self.machines
+                        .unit_files_transient
+                        .with_label_values(&[machine_name.as_str(), "user", unit_type.as_str()])
+                        .set(*count as f64);
+                }
 
                 // Machine units inner-collection timings
                 let m_units_timings = &machine_stats.units.collection_timings;
@@ -2303,6 +2411,10 @@ impl MonitordPromStats {
                     .units_collection_list_units_ms
                     .with_label_values(labels)
                     .set(m_units_timings.list_units_ms);
+                self.machines
+                    .units_collection_unit_files_ms
+                    .with_label_values(labels)
+                    .set(m_units_timings.unit_files_ms);
                 self.machines
                     .units_collection_per_unit_loop_ms
                     .with_label_values(labels)
@@ -2378,6 +2490,10 @@ impl MonitordPromStats {
             .list_units_ms
             .with_label_values(no_labels)
             .set(host_units_timings.list_units_ms);
+        self.units_collection
+            .unit_files_ms
+            .with_label_values(no_labels)
+            .set(host_units_timings.unit_files_ms);
         self.units_collection
             .per_unit_loop_ms
             .with_label_values(no_labels)

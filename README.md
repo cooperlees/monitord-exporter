@@ -2,7 +2,7 @@
 
 Tell Prometheus how happy your systemd is! 😊
 
-A Prometheus exporter using [monitord](https://github.com/cooperlees/monitord) to export systemd health metrics — networkd interfaces, PID 1 stats, per-service stats, system state, unit counts, timers, D-Bus stats, boot blame, unit verification, and machine/container stats.
+A Prometheus exporter using [monitord](https://github.com/cooperlees/monitord) to export systemd health metrics — networkd interfaces, PID 1 stats, per-service stats, system state, unit counts, unit file stats, timers, D-Bus stats, boot blame, unit verification, and machine/container stats.
 
 Stats are collected **on-demand** per Prometheus scrape (not polled on an interval), keeping resource usage minimal.
 
@@ -127,6 +127,13 @@ Overall systemd system state as a numeric enum value.
 
 Counts of systemd units by type: active, automount, device, failed, inactive, loaded, masked, mount, not_found, path, scope, service, slice, socket, target, timer, total. Plus `jobs_queued`.
 
+### Unit files metrics (`monitord_unit_files_*`)
+
+Unit file counts by scope and unit type from filesystem stats:
+
+- `monitord_unit_files_generated{scope="root|user",unit_type="..."}`
+- `monitord_unit_files_transient{scope="root|user",unit_type="..."}`
+
 ### Timer metrics (`monitord_timer_*`)
 
 Per-timer gauges (labeled by `timer_name`): accuracy_usec, fixed_random_delay, last_trigger_usec, last_trigger_usec_monotonic, next_elapse_usec_monotonic, next_elapse_usec_realtime, persistent, randomized_delay_usec, remain_after_elapse, service_unit_last_state_change_usec, service_unit_last_state_change_usec_monotonic.
@@ -160,6 +167,7 @@ Per-collector gauges (labeled by `collector`, e.g. `units`, `pid1`, `dbus_stats`
 Units collector inner phases (no labels):
 
 - `monitord_units_collection_list_units_ms` — time of the systemd `ListUnits` D-Bus call (one batched call returning all units).
+- `monitord_units_collection_unit_files_ms` — time spent collecting filesystem unit file stats.
 - `monitord_units_collection_per_unit_loop_ms` — time spent in the per-unit parse loop, including any per-unit D-Bus calls.
 - `monitord_units_collection_timer_dbus_fetches` — count of timer D-Bus property fetches this run.
 - `monitord_units_collection_state_dbus_fetches` — count of unit-state D-Bus fetches this run.
@@ -190,10 +198,11 @@ Mirrors host metrics per machine/container, labeled by `machine_name`:
 - **networkd** — managed interface count
 - **timer** — per-timer stats (labeled by `machine_name` + `timer_name`; gated by `--no-timers`)
 - **unit_state** — per-unit active/load state (labeled by `machine_name` + `unit_name`; gated by `--no-unit-states`)
+- **unit_files** — generated/transient unit file counts (labeled by `machine_name` + `scope` + `unit_type`)
 - **version** — systemd version inside the machine (`major` numeric, `info` labeled with version string)
 - **boot_blame** — slowest boot units (gated by `--boot-blame`)
 - **verify** — unit verification failures (gated by `--verify`)
-- **units_collection** — per-machine units collector inner timings (`monitord_machine_units_collection_{list_units_ms,per_unit_loop_ms,timer_dbus_fetches,state_dbus_fetches,service_dbus_fetches}`)
+- **units_collection** — per-machine units collector inner timings (`monitord_machine_units_collection_{list_units_ms,unit_files_ms,per_unit_loop_ms,timer_dbus_fetches,state_dbus_fetches,service_dbus_fetches}`)
 
 ## Prometheus Scrape Config
 
