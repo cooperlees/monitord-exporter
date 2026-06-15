@@ -1014,6 +1014,19 @@ impl DBusCGroupPromStats {
             .unwrap(),
         }
     }
+
+    pub fn reset_all(&self) {
+        self.name_objects.reset();
+        self.matches.reset();
+        self.match_bytes.reset();
+        self.reply_objects.reset();
+        self.incoming_bytes.reset();
+        self.incoming_fds.reset();
+        self.outgoing_bytes.reset();
+        self.outgoing_fds.reset();
+        self.activation_request_bytes.reset();
+        self.activation_request_fds.reset();
+    }
 }
 
 impl CollectionStats {
@@ -1968,16 +1981,7 @@ impl MonitordPromStats {
 
         // Set D-Bus stats
         if config.dbus_stats.enabled {
-            self.dbus_cgroups.name_objects.reset();
-            self.dbus_cgroups.matches.reset();
-            self.dbus_cgroups.match_bytes.reset();
-            self.dbus_cgroups.reply_objects.reset();
-            self.dbus_cgroups.incoming_bytes.reset();
-            self.dbus_cgroups.incoming_fds.reset();
-            self.dbus_cgroups.outgoing_bytes.reset();
-            self.dbus_cgroups.outgoing_fds.reset();
-            self.dbus_cgroups.activation_request_bytes.reset();
-            self.dbus_cgroups.activation_request_fds.reset();
+            self.dbus_cgroups.reset_all();
 
             if let Some(dbus) = &monitord_stats.dbus_stats {
                 if let Some(v) = dbus.serial {
