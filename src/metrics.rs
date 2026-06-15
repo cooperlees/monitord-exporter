@@ -150,6 +150,20 @@ struct DBusPeerPromStats {
 }
 
 #[derive(Debug)]
+struct DBusCGroupPromStats {
+    name_objects: GaugeVec,
+    matches: GaugeVec,
+    match_bytes: GaugeVec,
+    reply_objects: GaugeVec,
+    incoming_bytes: GaugeVec,
+    incoming_fds: GaugeVec,
+    outgoing_bytes: GaugeVec,
+    outgoing_fds: GaugeVec,
+    activation_request_bytes: GaugeVec,
+    activation_request_fds: GaugeVec,
+}
+
+#[derive(Debug)]
 struct BootBlamePromStats {
     activation_time_seconds: GaugeVec,
 }
@@ -277,6 +291,7 @@ pub struct MonitordPromStats {
     dbus: DBusPromStats,
     dbus_users: DBusUserPromStats,
     dbus_peers: DBusPeerPromStats,
+    dbus_cgroups: DBusCGroupPromStats,
     version: VersionPromStats,
     machines: MachinePromStats,
     boot_blame: BootBlamePromStats,
@@ -933,6 +948,74 @@ impl DBusPeerPromStats {
     }
 }
 
+impl DBusCGroupPromStats {
+    pub fn new() -> DBusCGroupPromStats {
+        let labels = &["cgroup_name"];
+        DBusCGroupPromStats {
+            name_objects: register_gauge_vec!(
+                "monitord_dbus_cgroup_name_objects",
+                "D-Bus cgroup name objects",
+                labels,
+            )
+            .unwrap(),
+            matches: register_gauge_vec!(
+                "monitord_dbus_cgroup_matches",
+                "D-Bus cgroup matches",
+                labels,
+            )
+            .unwrap(),
+            match_bytes: register_gauge_vec!(
+                "monitord_dbus_cgroup_match_bytes",
+                "D-Bus cgroup match bytes",
+                labels,
+            )
+            .unwrap(),
+            reply_objects: register_gauge_vec!(
+                "monitord_dbus_cgroup_reply_objects",
+                "D-Bus cgroup reply objects",
+                labels,
+            )
+            .unwrap(),
+            incoming_bytes: register_gauge_vec!(
+                "monitord_dbus_cgroup_incoming_bytes",
+                "D-Bus cgroup incoming bytes",
+                labels,
+            )
+            .unwrap(),
+            incoming_fds: register_gauge_vec!(
+                "monitord_dbus_cgroup_incoming_fds",
+                "D-Bus cgroup incoming file descriptors",
+                labels,
+            )
+            .unwrap(),
+            outgoing_bytes: register_gauge_vec!(
+                "monitord_dbus_cgroup_outgoing_bytes",
+                "D-Bus cgroup outgoing bytes",
+                labels,
+            )
+            .unwrap(),
+            outgoing_fds: register_gauge_vec!(
+                "monitord_dbus_cgroup_outgoing_fds",
+                "D-Bus cgroup outgoing file descriptors",
+                labels,
+            )
+            .unwrap(),
+            activation_request_bytes: register_gauge_vec!(
+                "monitord_dbus_cgroup_activation_request_bytes",
+                "D-Bus cgroup activation request bytes",
+                labels,
+            )
+            .unwrap(),
+            activation_request_fds: register_gauge_vec!(
+                "monitord_dbus_cgroup_activation_request_fds",
+                "D-Bus cgroup activation request file descriptors",
+                labels,
+            )
+            .unwrap(),
+        }
+    }
+}
+
 impl CollectionStats {
     pub fn new() -> CollectionStats {
         CollectionStats {
@@ -1524,6 +1607,7 @@ impl MonitordPromStats {
             dbus: DBusPromStats::new(),
             dbus_users: DBusUserPromStats::new(),
             dbus_peers: DBusPeerPromStats::new(),
+            dbus_cgroups: DBusCGroupPromStats::new(),
             version: VersionPromStats::new(),
             machines: MachinePromStats::new(),
             boot_blame: BootBlamePromStats::new(),
@@ -2045,6 +2129,73 @@ impl MonitordPromStats {
                         }
                         if let Some(v) = peer_stats.activation_request_fds {
                             self.dbus_peers
+                                .activation_request_fds
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
+                    }
+                }
+
+                // Set D-Bus cgroup accounting stats
+                if let Some(cgroup_accounting) = &dbus.dbus_broker_cgroup_accounting {
+                    for (cgroup_name, cgroup_stats) in cgroup_accounting.iter() {
+                        let labels = &[cgroup_name.as_str()];
+                        if let Some(v) = cgroup_stats.name_objects {
+                            self.dbus_cgroups
+                                .name_objects
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
+                        if let Some(v) = cgroup_stats.matches {
+                            self.dbus_cgroups
+                                .matches
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
+                        if let Some(v) = cgroup_stats.match_bytes {
+                            self.dbus_cgroups
+                                .match_bytes
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
+                        if let Some(v) = cgroup_stats.reply_objects {
+                            self.dbus_cgroups
+                                .reply_objects
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
+                        if let Some(v) = cgroup_stats.incoming_bytes {
+                            self.dbus_cgroups
+                                .incoming_bytes
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
+                        if let Some(v) = cgroup_stats.incoming_fds {
+                            self.dbus_cgroups
+                                .incoming_fds
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
+                        if let Some(v) = cgroup_stats.outgoing_bytes {
+                            self.dbus_cgroups
+                                .outgoing_bytes
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
+                        if let Some(v) = cgroup_stats.outgoing_fds {
+                            self.dbus_cgroups
+                                .outgoing_fds
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
+                        if let Some(v) = cgroup_stats.activation_request_bytes {
+                            self.dbus_cgroups
+                                .activation_request_bytes
+                                .with_label_values(labels)
+                                .set(v as f64);
+                        }
+                        if let Some(v) = cgroup_stats.activation_request_fds {
+                            self.dbus_cgroups
                                 .activation_request_fds
                                 .with_label_values(labels)
                                 .set(v as f64);
