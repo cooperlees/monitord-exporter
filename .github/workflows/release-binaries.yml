@@ -18,7 +18,7 @@ jobs:
             artifact: monitord-exporter-linux-aarch64
 
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions-rs/toolchain@v1
         with:
