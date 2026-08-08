@@ -28,6 +28,7 @@ const CONFIG_CONFLICTS: &[&str] = &[
     "boot_blame_count",
     "no_boot_cache",
     "verify",
+    "per_unit_concurrency",
 ];
 
 /// Clap CLI Args struct with metadata in help output
@@ -111,10 +112,36 @@ struct Cli {
     /// Enable unit verification stats (systemd-analyze verify)
     #[clap(long, conflicts_with = "config")]
     verify: bool,
+    /// Max units whose D-Bus work runs concurrently in the per-unit collection loop
+    #[clap(long, value_parser, default_value_t = 8, conflicts_with = "config")]
+    per_unit_concurrency: u64,
 }
 
-/// Signal handler to exit cleanly
-fn signal_handler() {
+/// Signal handler to exit cleanly. Takes the tracer provider (a no-op `()`
+/// when the `otlp` feature isn't compiled in) so a SIGINT flushes any
+/// buffered OTLP spans before exiting rather than dropping them.
+#[cfg(feature = "otlp")]
+fn signal_handler(tracer_provider: Option<opentelemetry_sdk::trace::SdkTracerProvider>) {
+    let mut signals = match signal_hook::iterator::Signals::new([signal_hook::consts::SIGINT]) {
+        Ok(sig) => sig,
+        Err(err) => panic!("Unable to handle SIGINT: {:#?}", err),
+    };
+    for sig in signals.forever() {
+        // TODO: Print signal name somehow ...
+        info!("Received signal {:?} .. Exiting ...", sig);
+        if sig == signal_hook::consts::SIGINT {
+            if let Some(provider) = &tracer_provider {
+                if let Err(e) = provider.shutdown() {
+                    tracing::warn!("failed to flush OTLP tracer provider on shutdown: {e}");
+                }
+            }
+            std::process::exit(0);
+        }
+    }
+}
+
+#[cfg(not(feature = "otlp"))]
+fn signal_handler(_tracer_provider: ()) {
     let mut signals = match signal_hook::iterator::Signals::new([signal_hook::consts::SIGINT]) {
         Ok(sig) => sig,
         Err(err) => panic!("Unable to handle SIGINT: {:#?}", err),
@@ -130,7 +157,10 @@ fn signal_handler() {
 
 fn main() -> Result<()> {
     let args = Cli::parse();
-    monitord_exporter::logging::setup_logging(args.log_level.into());
+    // `()` without the "otlp" feature -- kept as a binding (not discarded)
+    // so signal_handler's uniform signature below works for both builds.
+    #[allow(clippy::let_unit_value)]
+    let tracer_provider = monitord_exporter::logging::init(args.log_level.into());
 
     info!("Starting monitord-exporter on port {}", args.port);
 
@@ -144,7 +174,7 @@ fn main() -> Result<()> {
         }
     };
 
-    thread::spawn(signal_handler);
+    thread::spawn(move || signal_handler(tracer_provider));
 
     let mut prom_metrics = monitord_exporter::metrics::MonitordPromStats::new();
 
@@ -171,6 +201,7 @@ fn main() -> Result<()> {
             args.boot_blame_count,
             args.no_boot_cache,
             args.verify,
+            args.per_unit_concurrency,
         )
     };
     let rt = Runtime::new().expect("Unable to get an async runtime");

@@ -31,6 +31,7 @@ pub fn build_from_cli(
     boot_blame_count: u64,
     no_boot_cache: bool,
     verify: bool,
+    per_unit_concurrency: u64,
 ) -> monitord::config::Config {
     let mut config = monitord::config::Config::default();
     config.monitord.dbus_address = dbus_address.to_string();
@@ -48,6 +49,7 @@ pub fn build_from_cli(
     config.boot_blame.num_slowest_units = boot_blame_count;
     config.boot_blame.cache_enabled = !no_boot_cache;
     config.verify.enabled = verify;
+    config.units.per_unit_concurrency = per_unit_concurrency;
     config
 }
 
@@ -97,6 +99,7 @@ apt-daily.timer
 enabled = true
 state_stats = true
 state_stats_time_in_state = true
+per_unit_concurrency = 16
 
 [units.state_stats.allowlist]
 ssh.service
@@ -184,6 +187,7 @@ output_format = json
         assert!(config.units.state_stats_time_in_state);
         assert!(config.units.state_stats_allowlist.contains("ssh.service"));
         assert!(config.units.state_stats_blocklist.contains("snapd.service"));
+        assert_eq!(config.units.per_unit_concurrency, 16);
 
         // [machines]
         assert!(!config.machines.enabled);
@@ -262,6 +266,7 @@ output_format = json
             5,
             false, // no_boot_cache
             false, // verify
+            8,     // per_unit_concurrency
         );
 
         assert_eq!(
@@ -285,6 +290,7 @@ output_format = json
         assert_eq!(config.boot_blame.num_slowest_units, 5);
         assert!(config.boot_blame.cache_enabled);
         assert!(!config.verify.enabled);
+        assert_eq!(config.units.per_unit_concurrency, 8);
     }
 
     #[test]
@@ -305,6 +311,7 @@ output_format = json
             15,
             true, // no_boot_cache
             true, // verify
+            32,   // per_unit_concurrency
         );
 
         assert_eq!(config.monitord.dbus_address, "unix:path=/custom/bus");
@@ -326,5 +333,6 @@ output_format = json
         assert_eq!(config.boot_blame.num_slowest_units, 15);
         assert!(!config.boot_blame.cache_enabled);
         assert!(config.verify.enabled);
+        assert_eq!(config.units.per_unit_concurrency, 32);
     }
 }
