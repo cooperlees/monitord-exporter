@@ -117,6 +117,29 @@ struct Cli {
     per_unit_concurrency: u64,
 }
 
+/// `dbus-daemon --version` prints a single line like "D-Bus Message Bus
+/// Daemon 1.16.2" -- there's no D-Bus-protocol-level way to query the bus
+/// daemon's own version (unlike systemd, which exposes one as a Manager
+/// property), so this shells out instead. Best-effort: `None` on any
+/// failure (binary not on PATH, unexpected output, etc.) rather than
+/// blocking OTLP setup on it.
+#[cfg(feature = "otlp")]
+fn dbus_daemon_version() -> Option<String> {
+    let output = std::process::Command::new("dbus-daemon")
+        .arg("--version")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()?
+        .split_whitespace()
+        .last()
+        .map(str::to_string)
+}
+
 /// Signal handler to exit cleanly. Takes the tracer provider (a no-op `()`
 /// when the `otlp` feature isn't compiled in) so a SIGINT flushes any
 /// buffered OTLP spans before exiting rather than dropping them.
@@ -170,12 +193,37 @@ fn main() -> Result<()> {
     // entered-context interacting with the request loop's rt.block_on()
     // calls below.
     let rt = Runtime::new().expect("Unable to get an async runtime");
+
+    // Only bother fetching these (for OTLP resource attributes) when OTLP
+    // export is actually going to be configured -- avoids a wasted D-Bus
+    // round trip and subprocess spawn on every startup otherwise.
+    // Deliberately done via rt.block_on() here, before rt.enter() below,
+    // rather than inside logging::init() itself -- keeps this D-Bus/
+    // subprocess work on the same already-proven-safe "plain block_on"
+    // path the request loop uses, with no risk of nesting it under an
+    // active enter() guard.
+    #[cfg(feature = "otlp")]
+    let (systemd_version, dbus_version) = if std::env::var("OTLP_ENDPOINT").is_ok() {
+        let systemd_version = rt.block_on(async {
+            let conn = zbus::Connection::system().await.ok()?;
+            monitord::system::get_version(&conn).await.ok()
+        });
+        (
+            systemd_version.map(|v| v.to_string()),
+            dbus_daemon_version(),
+        )
+    } else {
+        (None, None)
+    };
+    #[cfg(not(feature = "otlp"))]
+    let (systemd_version, dbus_version) = (None, None);
+
     // `()` without the "otlp" feature -- kept as a binding (not discarded)
     // so signal_handler's uniform signature below works for both builds.
     #[allow(clippy::let_unit_value)]
     let tracer_provider = {
         let _rt_guard = rt.enter();
-        monitord_exporter::logging::init(args.log_level.into())
+        monitord_exporter::logging::init(args.log_level.into(), systemd_version, dbus_version)
     };
 
     info!("Starting monitord-exporter on port {}", args.port);
