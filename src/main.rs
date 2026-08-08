@@ -157,10 +157,26 @@ fn signal_handler(_tracer_provider: ()) {
 
 fn main() -> Result<()> {
     let args = Cli::parse();
+
+    // main() is a plain sync fn (not #[tokio::main]) -- the runtime is
+    // created here, up front, so logging::init()'s OTLP BatchSpanProcessor
+    // (which spawns its background export task onto runtime::Tokio at
+    // construction time) has an active Tokio context to spawn onto.
+    // Without this, otlp builds panic immediately ("there is no reactor
+    // running") since the runtime otherwise isn't created until later.
+    // The enter() guard is scoped tightly to just the init() call and
+    // dropped immediately after -- the spawned task keeps running on rt's
+    // own worker threads regardless, and this avoids any risk of a stale
+    // entered-context interacting with the request loop's rt.block_on()
+    // calls below.
+    let rt = Runtime::new().expect("Unable to get an async runtime");
     // `()` without the "otlp" feature -- kept as a binding (not discarded)
     // so signal_handler's uniform signature below works for both builds.
     #[allow(clippy::let_unit_value)]
-    let tracer_provider = monitord_exporter::logging::init(args.log_level.into());
+    let tracer_provider = {
+        let _rt_guard = rt.enter();
+        monitord_exporter::logging::init(args.log_level.into())
+    };
 
     info!("Starting monitord-exporter on port {}", args.port);
 
@@ -204,7 +220,6 @@ fn main() -> Result<()> {
             args.per_unit_concurrency,
         )
     };
-    let rt = Runtime::new().expect("Unable to get an async runtime");
     let mut cached_dbus_connection: Option<zbus::Connection> = None;
     loop {
         let guard = exporter.wait_request();
