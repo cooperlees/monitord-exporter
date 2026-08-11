@@ -2231,6 +2231,7 @@ impl MonitordPromStats {
             .version_major
             .with_label_values(no_labels)
             .set(major);
+        self.version.version_info.reset();
         self.version
             .version_info
             .with_label_values(&[&version_str])
@@ -2240,6 +2241,7 @@ impl MonitordPromStats {
         if config.machines.enabled {
             self.machines.unit_files_generated.reset();
             self.machines.unit_files_transient.reset();
+            self.machines.version_info.reset();
             for (machine_name, machine_stats) in monitord_stats.machines.iter() {
                 let labels = &[machine_name.as_str()];
                 self.machines
