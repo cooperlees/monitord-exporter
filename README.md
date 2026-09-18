@@ -195,6 +195,10 @@ varlink path at all (`pid1`, `dbus_stats`) and disabled collectors have no
 series, so the series that are present are exactly the enabled set and
 `avg(monitord_varlink_usage)` is the share of collectors served by varlink.
 
+These are always exported, not gated on `--varlink`: every enabled collector
+records the transport that served it, so without the flag the series are still
+present and read `0`. The flag is only what makes a `1` possible.
+
 Collectors flip from `0` to `1` with no config change as the host's systemd
 upgrades past each endpoint's minimum version (networkd v257+, system
 state/version v258+, units v260+, unit details v261+), so graphing this over a
@@ -307,7 +311,10 @@ monitord_units_loaded_units 431
 monitord_units_total_units 475
 ```
 
-### Varlink usage metrics (enabled with `--varlink`)
+### Varlink usage metrics
+
+Always exported; the sample below is from a host run with `--varlink`. Without
+that flag the same series are present and every value is `0`.
 
 ```console
 # HELP monitord_varlink_usage 1 if varlink served this collector on the last run, 0 if it fell back to D-Bus (or files for networkd). Collectors with no varlink path (pid1, dbus) and disabled collectors have no series
