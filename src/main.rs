@@ -29,6 +29,7 @@ const CONFIG_CONFLICTS: &[&str] = &[
     "no_boot_cache",
     "verify",
     "per_unit_concurrency",
+    "varlink",
 ];
 
 /// Clap CLI Args struct with metadata in help output
@@ -115,6 +116,10 @@ struct Cli {
     /// Max units whose D-Bus work runs concurrently in the per-unit collection loop
     #[clap(long, value_parser, default_value_t = 8, conflicts_with = "config")]
     per_unit_concurrency: u64,
+    /// Collect via systemd's varlink APIs where available, falling back to D-Bus
+    /// per collector. Use a config file for the per-collector `varlink` opt-outs.
+    #[clap(long, conflicts_with = "config")]
+    varlink: bool,
 }
 
 /// `dbus-daemon --version` prints a single line like "D-Bus Message Bus
@@ -266,6 +271,7 @@ fn main() -> Result<()> {
             args.no_boot_cache,
             args.verify,
             args.per_unit_concurrency,
+            args.varlink,
         )
     };
     let mut cached_dbus_connection: Option<zbus::Connection> = None;

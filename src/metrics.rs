@@ -175,6 +175,11 @@ struct VerifyPromStats {
 }
 
 #[derive(Debug)]
+struct VarlinkUsagePromStats {
+    usage: GaugeVec,
+}
+
+#[derive(Debug)]
 struct CollectionStats {
     stat_collection_run_time_ms: GaugeVec,
 }
@@ -276,6 +281,7 @@ struct MachinePromStats {
     units_collection_timer_dbus_fetches: GaugeVec,
     units_collection_state_dbus_fetches: GaugeVec,
     units_collection_service_dbus_fetches: GaugeVec,
+    varlink_usage: GaugeVec,
 }
 
 #[derive(Debug)]
@@ -299,6 +305,28 @@ pub struct MonitordPromStats {
     collection: CollectionStats,
     collector_timings: CollectorTimingPromStats,
     units_collection: UnitsCollectionTimingsPromStats,
+    varlink_usage: VarlinkUsagePromStats,
+}
+
+/// Collector name / transport pairs in the order monitord's flat JSON emits
+/// them (`varlink_usage.<collector>`).
+///
+/// `None` means the collector didn't run (disabled in config) or has no
+/// varlink path at all (`pid1`, `dbus`) -- callers skip those so the series
+/// that are present are exactly the enabled set, which is what makes
+/// `avg(monitord_varlink_usage)` a meaningful adoption ratio.
+fn varlink_usage_fields(
+    usage: &monitord::VarlinkUsage,
+) -> [(&'static str, Option<monitord::CollectorTransport>); 7] {
+    [
+        ("version", usage.version),
+        ("system_state", usage.system_state),
+        ("units", usage.units),
+        ("networkd", usage.networkd),
+        ("machines", usage.machines),
+        ("boot_blame", usage.boot_blame),
+        ("verify", usage.verify),
+    ]
 }
 
 impl NetworkdInterfaceStats {
@@ -1029,6 +1057,19 @@ impl DBusCGroupPromStats {
     }
 }
 
+impl VarlinkUsagePromStats {
+    pub fn new() -> VarlinkUsagePromStats {
+        VarlinkUsagePromStats {
+            usage: register_gauge_vec!(
+                "monitord_varlink_usage",
+                "1 if varlink served this collector on the last run, 0 if it fell back to D-Bus (or files for networkd). Collectors with no varlink path (pid1, dbus) and disabled collectors have no series",
+                &["collector"],
+            )
+            .unwrap(),
+        }
+    }
+}
+
 impl CollectionStats {
     pub fn new() -> CollectionStats {
         CollectionStats {
@@ -1602,6 +1643,12 @@ impl MachinePromStats {
                 labels,
             )
             .unwrap(),
+            varlink_usage: register_gauge_vec!(
+                "monitord_machine_varlink_usage",
+                "1 if varlink served this machine's collector on the last run, 0 if it fell back to D-Bus. A container 'units' 1 still involves some D-Bus underneath, so don't aggregate these with the host gauges",
+                &["machine_name", "collector"],
+            )
+            .unwrap(),
         }
     }
 }
@@ -1628,6 +1675,7 @@ impl MonitordPromStats {
             collection: CollectionStats::new(),
             collector_timings: CollectorTimingPromStats::new(),
             units_collection: UnitsCollectionTimingsPromStats::new(),
+            varlink_usage: VarlinkUsagePromStats::new(),
         }
     }
 
@@ -2237,11 +2285,27 @@ impl MonitordPromStats {
             .with_label_values(&[&version_str])
             .set(1.0);
 
+        // Set which transport served each collector this run. Reset first so
+        // a collector that stops reporting (disabled, or a run where it never
+        // got to record one) drops its series rather than serving the previous
+        // scrape's value -- the present series are meant to be exactly the
+        // enabled set.
+        self.varlink_usage.usage.reset();
+        for (collector, transport) in varlink_usage_fields(&monitord_stats.varlink_usage) {
+            if let Some(transport) = transport {
+                self.varlink_usage
+                    .usage
+                    .with_label_values(&[collector])
+                    .set(transport.as_u64() as f64);
+            }
+        }
+
         // Set machine stats
         if config.machines.enabled {
             self.machines.unit_files_generated.reset();
             self.machines.unit_files_transient.reset();
             self.machines.version_info.reset();
+            self.machines.varlink_usage.reset();
             for (machine_name, machine_stats) in monitord_stats.machines.iter() {
                 let labels = &[machine_name.as_str()];
                 self.machines
@@ -2571,6 +2635,16 @@ impl MonitordPromStats {
                         .unit_files_transient
                         .with_label_values(&[machine_name.as_str(), "user", unit_type.as_str()])
                         .set(*count as f64);
+                }
+
+                // Machine varlink usage
+                for (collector, transport) in varlink_usage_fields(&machine_stats.varlink_usage) {
+                    if let Some(transport) = transport {
+                        self.machines
+                            .varlink_usage
+                            .with_label_values(&[machine_name.as_str(), collector])
+                            .set(transport.as_u64() as f64);
+                    }
                 }
 
                 // Machine units inner-collection timings
