@@ -32,6 +32,7 @@ pub fn build_from_cli(
     no_boot_cache: bool,
     verify: bool,
     per_unit_concurrency: u64,
+    varlink: bool,
 ) -> monitord::config::Config {
     let mut config = monitord::config::Config::default();
     config.monitord.dbus_address = dbus_address.to_string();
@@ -50,6 +51,10 @@ pub fn build_from_cli(
     config.boot_blame.cache_enabled = !no_boot_cache;
     config.verify.enabled = verify;
     config.units.per_unit_concurrency = per_unit_concurrency;
+    // The per-collector `varlink` toggles default to true, so this master
+    // switch is all the CLI needs; opting a single collector back onto D-Bus
+    // is a config file only knob.
+    config.varlink.enabled = varlink;
     config
 }
 
@@ -97,6 +102,7 @@ apt-daily.timer
 
 [units]
 enabled = true
+varlink = false
 state_stats = true
 state_stats_time_in_state = true
 per_unit_concurrency = 16
@@ -125,6 +131,9 @@ num_slowest_units = 10
 network-wait-online.service
 
 [verify]
+enabled = true
+
+[varlink]
 enabled = true
 "###;
 
@@ -208,6 +217,18 @@ output_format = json
 
         // [verify]
         assert!(config.verify.enabled);
+
+        // [varlink] - global switch plus the per-collector opt-outs, which
+        // default to true so only the section that says otherwise is off.
+        assert!(config.varlink.enabled);
+        assert!(!config.units.varlink);
+        assert!(config.networkd.varlink);
+        assert!(config.system_state.varlink);
+        assert!(config.machines.varlink);
+        assert!(config.boot_blame.varlink);
+        assert!(config.verify.varlink);
+        assert!(config.use_varlink(&[config.networkd.varlink]));
+        assert!(!config.use_varlink(&[config.units.varlink]));
     }
 
     #[test]
@@ -267,6 +288,7 @@ output_format = json
             false, // no_boot_cache
             false, // verify
             8,     // per_unit_concurrency
+            false, // varlink
         );
 
         assert_eq!(
@@ -291,6 +313,7 @@ output_format = json
         assert!(config.boot_blame.cache_enabled);
         assert!(!config.verify.enabled);
         assert_eq!(config.units.per_unit_concurrency, 8);
+        assert!(!config.varlink.enabled);
     }
 
     #[test]
@@ -312,6 +335,7 @@ output_format = json
             true, // no_boot_cache
             true, // verify
             32,   // per_unit_concurrency
+            true, // varlink
         );
 
         assert_eq!(config.monitord.dbus_address, "unix:path=/custom/bus");
@@ -334,5 +358,9 @@ output_format = json
         assert!(!config.boot_blame.cache_enabled);
         assert!(config.verify.enabled);
         assert_eq!(config.units.per_unit_concurrency, 32);
+        // --varlink flips the master switch; every collector keeps its
+        // default-true section toggle, so all of them may use varlink.
+        assert!(config.varlink.enabled);
+        assert!(config.use_varlink(&[config.units.varlink]));
     }
 }

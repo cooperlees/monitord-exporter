@@ -44,6 +44,9 @@ monitord-exporter -p 9090 --no-networkd --no-pid1
 # Full monitoring with boot blame and verification
 monitord-exporter -p 9090 -s ssh.service --boot-blame --boot-blame-count 10 --verify
 
+# Prefer systemd's varlink APIs, falling back to D-Bus per collector (>= 0.27.0)
+monitord-exporter -p 9090 --varlink
+
 # Load settings from a monitord.conf file (>= 0.19.0)
 monitord-exporter -p 9090 -c /etc/monitord.conf
 
@@ -101,7 +104,14 @@ When `-c` is supplied the exporter reads all monitord settings (services, timers
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--verify` | disabled | Enable unit verification via `systemd-analyze verify` |
+| `--varlink` | disabled | Collect via systemd's varlink APIs where available, falling back to D-Bus per collector |
 | `--networkd-state-file-path` | `/run/systemd/netif/links` | Path to networkd link state files |
+
+`--varlink` is the master switch only. Each varlink-capable collector also has
+its own `varlink = true|false` key in the `[networkd]`, `[system-state]`,
+`[units]`, `[machines]`, `[boot]` and `[verify]` sections of a `monitord.conf`
+(all default `true`), so keeping a single collector on D-Bus while the rest
+move to varlink requires `-c`.
 
 ## Metrics Reference
 
@@ -175,6 +185,25 @@ Units collector inner phases (no labels):
 
 Comparing `sum(monitord_collector_elapsed_ms) / monitord_stat_collection_run_time_ms` gives an effective parallelism ratio (`≈ N` means N-way parallelism, `≈ 1` means effectively serial).
 
+### Varlink usage metrics (`monitord_varlink_usage`)
+
+Which transport served each collector on the last run, labeled by `collector`
+(`version`, `system_state`, `units`, `networkd`, `machines`, `boot_blame`,
+`verify`): `1` when the varlink attempt succeeded, `0` when the collector fell
+back to D-Bus (or to file-based collection for networkd). Collectors with no
+varlink path at all (`pid1`, `dbus_stats`) and disabled collectors have no
+series, so the series that are present are exactly the enabled set and
+`avg(monitord_varlink_usage)` is the share of collectors served by varlink.
+
+These are always exported, not gated on `--varlink`: every enabled collector
+records the transport that served it, so without the flag the series are still
+present and read `0`. The flag is only what makes a `1` possible.
+
+Collectors flip from `0` to `1` with no config change as the host's systemd
+upgrades past each endpoint's minimum version (networkd v257+, system
+state/version v258+, units v260+, unit details v261+), so graphing this over a
+fleet shows varlink adoption climbing.
+
 ### Boot blame metrics (`monitord_boot_blame_*`)
 
 Enabled with `--boot-blame`. Reports the N slowest units at boot: `activation_time_seconds` (labeled by `unit_name`).
@@ -203,6 +232,7 @@ Mirrors host metrics per machine/container, labeled by `machine_name`:
 - **boot_blame** — slowest boot units (gated by `--boot-blame`)
 - **verify** — unit verification failures (gated by `--verify`)
 - **units_collection** — per-machine units collector inner timings (`monitord_machine_units_collection_{list_units_ms,unit_files_ms,per_unit_loop_ms,timer_dbus_fetches,state_dbus_fetches,service_dbus_fetches}`)
+- **varlink_usage** — transport that served each collector inside the machine (`monitord_machine_varlink_usage`, labeled by `machine_name` + `collector`). A container `units` value of `1` still involves some D-Bus underneath (the timer backfill and oneshot type override have no varlink equivalent there), so compare host and container values separately rather than aggregating them. The host-side `machines` collector covers enumeration only and stays `0` until machined grows a varlink List API.
 
 ## Prometheus Scrape Config
 
@@ -279,6 +309,21 @@ monitord_units_loaded_units 431
 # HELP monitord_units_total_units Count of total systemd units
 # TYPE monitord_units_total_units gauge
 monitord_units_total_units 475
+```
+
+### Varlink usage metrics
+
+Always exported; the sample below is from a host run with `--varlink`. Without
+that flag the same series are present and every value is `0`.
+
+```console
+# HELP monitord_varlink_usage 1 if varlink served this collector on the last run, 0 if it fell back to D-Bus (or files for networkd). Collectors with no varlink path (pid1, dbus) and disabled collectors have no series
+# TYPE monitord_varlink_usage gauge
+monitord_varlink_usage{collector="machines"} 0
+monitord_varlink_usage{collector="networkd"} 1
+monitord_varlink_usage{collector="system_state"} 1
+monitord_varlink_usage{collector="units"} 0
+monitord_varlink_usage{collector="version"} 1
 ```
 
 ### Boot blame metrics (enabled with `--boot-blame`)
