@@ -47,6 +47,9 @@ monitord-exporter -p 9090 -s ssh.service --boot-blame --boot-blame-count 10 --ve
 # Prefer systemd's varlink APIs, falling back to D-Bus per collector (>= 0.27.0)
 monitord-exporter -p 9090 --varlink
 
+# Prove a host is varlink-clean: no collector may fall back to D-Bus (>= 0.27.1)
+monitord-exporter -p 9090 --varlink --varlink-no-fallback
+
 # Load settings from a monitord.conf file (>= 0.19.0)
 monitord-exporter -p 9090 -c /etc/monitord.conf
 
@@ -105,6 +108,7 @@ When `-c` is supplied the exporter reads all monitord settings (services, timers
 |------|---------|-------------|
 | `--verify` | disabled | Enable unit verification via `systemd-analyze verify` |
 | `--varlink` | disabled | Collect via systemd's varlink APIs where available, falling back to D-Bus per collector |
+| `--varlink-no-fallback` | disabled | Forbid every varlink fallback, so a varlink failure fails that collector instead of being served over D-Bus (requires `--varlink`, >= 0.27.1) |
 | `--networkd-state-file-path` | `/run/systemd/netif/links` | Path to networkd link state files |
 
 `--varlink` is the master switch only. Each varlink-capable collector also has
@@ -112,6 +116,34 @@ its own `varlink = true|false` key in the `[networkd]`, `[system-state]`,
 `[units]`, `[machines]`, `[boot]` and `[verify]` sections of a `monitord.conf`
 (all default `true`), so keeping a single collector on D-Bus while the rest
 move to varlink requires `-c`.
+
+`--varlink-no-fallback` (`no_fallback = true` in the `[varlink]` section of a
+`monitord.conf`) removes the safety net: instead of logging a warning and
+quietly serving the collector over D-Bus, a varlink failure becomes that
+collector's error. The scrape itself still succeeds and the other collectors
+still report. That makes it an assertion rather than a fallback, which is what
+you want when validating a varlink-only host or gating CI on one. Leave it off
+in production, where a silent D-Bus fallback beats a hole in the dashboard.
+
+A failed collector contributes no *new* data that run, but "no new data" shows
+up three different ways in the scrape, which matters when writing alerts:
+
+| What | On a failed collector | Why |
+|------|----------------------|-----|
+| `monitord_varlink_usage{collector="..."}` | series **disappears** | the gauge is `reset()` each scrape and only re-set for collectors that recorded a transport |
+| Aggregate gauges (e.g. `monitord_units_active_units`) | read **`0`** | each scrape starts from a fresh `MonitordStats::default()`, and these are set unconditionally |
+| Per-entity series (`monitord_service_*`, `monitord_networkd_*`) | keep the **previous scrape's values** | these `GaugeVec`s are not reset, so the old label sets persist until a later scrape overwrites them |
+
+So absence, `0`, and stale are three distinct PromQL situations here. The
+honest liveness signal across all three is `monitord_varlink_usage` absence,
+not a zero on the aggregate gauges.
+
+Note that "varlink-clean" has limits worth knowing: the `dbus_stats` collector
+and the `machines` *enumeration* (listing which containers exist) have no
+varlink path at all, so they use the bus regardless of this flag and never
+report a fallback. The per-container sub-collectors that run once a machine is
+enumerated (its networkd, system state, version and units) do have varlink
+paths and do honor `no_fallback`.
 
 ## Metrics Reference
 
@@ -198,6 +230,12 @@ series, so the series that are present are exactly the enabled set and
 These are always exported, not gated on `--varlink`: every enabled collector
 records the transport that served it, so without the flag the series are still
 present and read `0`. The flag is only what makes a `1` possible.
+
+With `--varlink-no-fallback` a collector that cannot use varlink fails outright,
+so it records no transport and drops out of this metric entirely for that run
+instead of reporting a `0` - absence, not a zero, is the signal there. Note
+this is specific to *this* metric; that collector's other gauges read `0` or go
+stale rather than disappearing (see the table under `--varlink-no-fallback`).
 
 Collectors flip from `0` to `1` with no config change as the host's systemd
 upgrades past each endpoint's minimum version (networkd v257+, system

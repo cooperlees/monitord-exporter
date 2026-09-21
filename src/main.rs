@@ -30,6 +30,7 @@ const CONFIG_CONFLICTS: &[&str] = &[
     "verify",
     "per_unit_concurrency",
     "varlink",
+    "varlink_no_fallback",
 ];
 
 /// Clap CLI Args struct with metadata in help output
@@ -120,6 +121,14 @@ struct Cli {
     /// per collector. Use a config file for the per-collector `varlink` opt-outs.
     #[clap(long, conflicts_with = "config")]
     varlink: bool,
+    /// Forbid the per-collector D-Bus (or file-based) fallback: a varlink failure
+    /// fails that collector instead of quietly serving its stats over D-Bus. The
+    /// scrape still succeeds and the other collectors still report; the failed one
+    /// just contributes no new data (its varlink_usage series disappears, its
+    /// aggregate gauges read 0, its per-entity series go stale). This is how you
+    /// prove a box is varlink-clean. Requires --varlink.
+    #[clap(long, requires = "varlink", conflicts_with = "config")]
+    varlink_no_fallback: bool,
 }
 
 /// `dbus-daemon --version` prints a single line like "D-Bus Message Bus
@@ -272,6 +281,7 @@ fn main() -> Result<()> {
             args.verify,
             args.per_unit_concurrency,
             args.varlink,
+            args.varlink_no_fallback,
         )
     };
     let mut cached_dbus_connection: Option<zbus::Connection> = None;

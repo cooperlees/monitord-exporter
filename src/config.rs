@@ -33,6 +33,7 @@ pub fn build_from_cli(
     verify: bool,
     per_unit_concurrency: u64,
     varlink: bool,
+    varlink_no_fallback: bool,
 ) -> monitord::config::Config {
     let mut config = monitord::config::Config::default();
     config.monitord.dbus_address = dbus_address.to_string();
@@ -55,6 +56,9 @@ pub fn build_from_cli(
     // switch is all the CLI needs; opting a single collector back onto D-Bus
     // is a config file only knob.
     config.varlink.enabled = varlink;
+    // Only meaningful with the master switch on - monitord warns if it is not,
+    // and clap's `requires = "varlink"` keeps the CLI from getting there.
+    config.varlink.no_fallback = varlink_no_fallback;
     config
 }
 
@@ -135,6 +139,7 @@ enabled = true
 
 [varlink]
 enabled = true
+no_fallback = true
 "###;
 
     const MINIMAL_CONFIG: &str = r###"
@@ -221,6 +226,7 @@ output_format = json
         // [varlink] - global switch plus the per-collector opt-outs, which
         // default to true so only the section that says otherwise is off.
         assert!(config.varlink.enabled);
+        assert!(config.varlink.no_fallback);
         assert!(!config.units.varlink);
         assert!(config.networkd.varlink);
         assert!(config.system_state.varlink);
@@ -289,6 +295,7 @@ output_format = json
             false, // verify
             8,     // per_unit_concurrency
             false, // varlink
+            false, // varlink_no_fallback
         );
 
         assert_eq!(
@@ -314,6 +321,7 @@ output_format = json
         assert!(!config.verify.enabled);
         assert_eq!(config.units.per_unit_concurrency, 8);
         assert!(!config.varlink.enabled);
+        assert!(!config.varlink.no_fallback);
     }
 
     #[test]
@@ -336,6 +344,7 @@ output_format = json
             true, // verify
             32,   // per_unit_concurrency
             true, // varlink
+            true, // varlink_no_fallback
         );
 
         assert_eq!(config.monitord.dbus_address, "unix:path=/custom/bus");
@@ -362,5 +371,8 @@ output_format = json
         // default-true section toggle, so all of them may use varlink.
         assert!(config.varlink.enabled);
         assert!(config.use_varlink(&[config.units.varlink]));
+        // --varlink-no-fallback turns a varlink failure into that collector's
+        // error rather than a silent D-Bus fallback.
+        assert!(config.varlink.no_fallback);
     }
 }
