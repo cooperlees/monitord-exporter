@@ -22,7 +22,7 @@ opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "experimental_tr
 prometheus_exporter = "0.8"
 zbus = { version = "5", features = ["tokio"], default-features = false }
 signal-hook = "0.4.1"
-tokio = { version = "1.41.0", feature = ["fs", "rt", "rt-multi-thread", "macros", "tracing", "time", "sync"] }
+tokio = { version = "1.41.0", features = ["fs", "rt", "rt-multi-thread", "macros", "tracing", "time", "sync"] }
 tonic = { version = "0.14", default-features = false, features = ["transport"], optional = true }
 tracing = "0.1.44"
 tracing-core = "0.1"

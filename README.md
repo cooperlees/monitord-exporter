@@ -121,15 +121,29 @@ move to varlink requires `-c`.
 `monitord.conf`) removes the safety net: instead of logging a warning and
 quietly serving the collector over D-Bus, a varlink failure becomes that
 collector's error. The scrape itself still succeeds and the other collectors
-still report - the failed collector's gauges simply go unset for that run, and
-its `monitord_varlink_usage` series disappears rather than dropping to `0`.
-That makes it an assertion rather than a fallback, which is what you want when
-validating a varlink-only host or gating CI on one. Leave it off in production,
-where a silent D-Bus fallback beats a hole in the dashboard.
+still report. That makes it an assertion rather than a fallback, which is what
+you want when validating a varlink-only host or gating CI on one. Leave it off
+in production, where a silent D-Bus fallback beats a hole in the dashboard.
+
+A failed collector contributes no *new* data that run, but "no new data" shows
+up three different ways in the scrape, which matters when writing alerts:
+
+| What | On a failed collector | Why |
+|------|----------------------|-----|
+| `monitord_varlink_usage{collector="..."}` | series **disappears** | the gauge is `reset()` each scrape and only re-set for collectors that recorded a transport |
+| Aggregate gauges (e.g. `monitord_units_active_units`) | read **`0`** | each scrape starts from a fresh `MonitordStats::default()`, and these are set unconditionally |
+| Per-entity series (`monitord_service_*`, `monitord_networkd_*`) | keep the **previous scrape's values** | these `GaugeVec`s are not reset, so the old label sets persist until a later scrape overwrites them |
+
+So absence, `0`, and stale are three distinct PromQL situations here. The
+honest liveness signal across all three is `monitord_varlink_usage` absence,
+not a zero on the aggregate gauges.
 
 Note that "varlink-clean" has limits worth knowing: the `dbus_stats` collector
-and `machines` enumeration have no varlink path at all, so they use the bus
-regardless of this flag and never report a fallback.
+and the `machines` *enumeration* (listing which containers exist) have no
+varlink path at all, so they use the bus regardless of this flag and never
+report a fallback. The per-container sub-collectors that run once a machine is
+enumerated (its networkd, system state, version and units) do have varlink
+paths and do honor `no_fallback`.
 
 ## Metrics Reference
 
@@ -218,8 +232,10 @@ records the transport that served it, so without the flag the series are still
 present and read `0`. The flag is only what makes a `1` possible.
 
 With `--varlink-no-fallback` a collector that cannot use varlink fails outright,
-so it exports no series at all for that run instead of a `0` - absence, not a
-zero, is the signal there.
+so it records no transport and drops out of this metric entirely for that run
+instead of reporting a `0` - absence, not a zero, is the signal there. Note
+this is specific to *this* metric; that collector's other gauges read `0` or go
+stale rather than disappearing (see the table under `--varlink-no-fallback`).
 
 Collectors flip from `0` to `1` with no config change as the host's systemd
 upgrades past each endpoint's minimum version (networkd v257+, system

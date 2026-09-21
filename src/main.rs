@@ -123,8 +123,10 @@ struct Cli {
     varlink: bool,
     /// Forbid the per-collector D-Bus (or file-based) fallback: a varlink failure
     /// fails that collector instead of quietly serving its stats over D-Bus. The
-    /// scrape still succeeds - the failed collector's gauges just go unset - so
-    /// this is how you prove a box is varlink-clean. Requires --varlink.
+    /// scrape still succeeds and the other collectors still report; the failed one
+    /// just contributes no new data (its varlink_usage series disappears, its
+    /// aggregate gauges read 0, its per-entity series go stale). This is how you
+    /// prove a box is varlink-clean. Requires --varlink.
     #[clap(long, requires = "varlink", conflicts_with = "config")]
     varlink_no_fallback: bool,
 }
