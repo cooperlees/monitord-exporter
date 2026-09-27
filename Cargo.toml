@@ -27,7 +27,7 @@ tonic = { version = "0.14", default-features = false, features = ["transport"], 
 tracing = "0.1.44"
 tracing-core = "0.1"
 tracing-glog = "0.4"
-tracing-opentelemetry = { version = "0.33", optional = true }
+tracing-opentelemetry = { version = "0.34", optional = true }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [features]
