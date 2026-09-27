@@ -108,6 +108,11 @@ pub fn init(
 ///   network black hole would otherwise hang on tonic/hyper's default
 ///   (~30s) before the RPC-level timeout even applies. Building the
 ///   `Channel` by hand is the only way to set both.
+/// - Since opentelemetry-otlp 0.33, transient export failures (gRPC
+///   `Unavailable` etc.) are retried by default with jittered exponential
+///   backoff (3 retries, 100ms..1.6s). The 5s timeout above is per attempt,
+///   and all of it happens on the background export task, so a flaky
+///   collector costs dropped/delayed spans, never scrape latency.
 /// - A malformed endpoint or exporter construction failure is logged once,
 ///   here, and just disables OTLP export for this process rather than
 ///   failing startup — it uses `eprintln!`, not `tracing::warn!`, because

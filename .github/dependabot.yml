@@ -5,6 +5,13 @@ updates:
     schedule:
       interval: "weekly"
       day: "sunday"
+    # These crates are version-locked to each other; separate PRs each fail CI.
+    groups:
+      opentelemetry:
+        patterns:
+          - "opentelemetry*"
+          - "tracing-opentelemetry"
+          - "tonic"
 
   - package-ecosystem: "github-actions"
     directory: "/"
