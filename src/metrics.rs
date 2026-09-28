@@ -1645,7 +1645,7 @@ impl MachinePromStats {
             .unwrap(),
             varlink_usage: register_gauge_vec!(
                 "monitord_machine_varlink_usage",
-                "1 if varlink served this machine's collector on the last run, 0 if it fell back to D-Bus. A container 'units' 1 still involves some D-Bus underneath, so don't aggregate these with the host gauges",
+                "1 if varlink served this machine's collector on the last run, 0 if it fell back to D-Bus (or files for networkd). Container varlink needs CAP_SYS_ADMIN besides CAP_SYS_PTRACE; without it the machine falls back to D-Bus",
                 &["machine_name", "collector"],
             )
             .unwrap(),

@@ -138,12 +138,17 @@ So absence, `0`, and stale are three distinct PromQL situations here. The
 honest liveness signal across all three is `monitord_varlink_usage` absence,
 not a zero on the aggregate gauges.
 
-Note that "varlink-clean" has limits worth knowing: the `dbus_stats` collector
-and the `machines` *enumeration* (listing which containers exist) have no
-varlink path at all, so they use the bus regardless of this flag and never
-report a fallback. The per-container sub-collectors that run once a machine is
-enumerated (its networkd, system state, version and units) do have varlink
-paths and do honor `no_fallback`.
+Note that "varlink-clean" has a limit worth knowing: the `dbus_stats` collector
+has no varlink path at all (it reports on the bus daemon itself), so it uses
+the bus regardless of this flag and never reports a fallback. Machine
+*enumeration* does have a varlink path (machined's `io.systemd.Machine.List`,
+systemd v257+), and every per-container sub-collector (networkd, system
+state, version, units) honors `no_fallback` too.
+
+Container varlink connects from inside the container's PID namespace, so a
+non-root exporter additionally needs `CAP_SYS_ADMIN` there on top of
+`CAP_SYS_PTRACE`. Without it monitord warns once and collects that machine
+over D-Bus instead; with `no_fallback` that downgrade is an error.
 
 ## Metrics Reference
 
@@ -238,9 +243,9 @@ this is specific to *this* metric; that collector's other gauges read `0` or go
 stale rather than disappearing (see the table under `--varlink-no-fallback`).
 
 Collectors flip from `0` to `1` with no config change as the host's systemd
-upgrades past each endpoint's minimum version (networkd v257+, system
-state/version v258+, units v260+, unit details v261+), so graphing this over a
-fleet shows varlink adoption climbing.
+upgrades past each endpoint's minimum version (networkd and machine
+enumeration v257+, system state/version v258+, units v260+, unit details
+v261+), so graphing this over a fleet shows varlink adoption climbing.
 
 ### Boot blame metrics (`monitord_boot_blame_*`)
 
@@ -270,7 +275,7 @@ Mirrors host metrics per machine/container, labeled by `machine_name`:
 - **boot_blame** — slowest boot units (gated by `--boot-blame`)
 - **verify** — unit verification failures (gated by `--verify`)
 - **units_collection** — per-machine units collector inner timings (`monitord_machine_units_collection_{list_units_ms,unit_files_ms,per_unit_loop_ms,timer_dbus_fetches,state_dbus_fetches,service_dbus_fetches}`)
-- **varlink_usage** — transport that served each collector inside the machine (`monitord_machine_varlink_usage`, labeled by `machine_name` + `collector`). A container `units` value of `1` still involves some D-Bus underneath (the timer backfill and oneshot type override have no varlink equivalent there), so compare host and container values separately rather than aggregating them. The host-side `machines` collector covers enumeration only and stays `0` until machined grows a varlink List API.
+- **varlink_usage** — transport that served each collector inside the machine (`monitord_machine_varlink_usage`, labeled by `machine_name` + `collector`). The host-side `machines` series covers enumeration only (`io.systemd.Machine.List` on systemd v257+, machined's D-Bus API before that). Container collection over varlink needs `CAP_SYS_ADMIN` (to enter the container's PID namespace) on top of `CAP_SYS_PTRACE`; without it monitord warns once and falls back to D-Bus for machines.
 
 ## Prometheus Scrape Config
 
