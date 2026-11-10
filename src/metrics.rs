@@ -330,6 +330,18 @@ fn varlink_usage_fields(
 }
 
 impl NetworkdInterfaceStats {
+    /// Drop every per-interface series so one that vanished stops being exported.
+    /// Called before each repopulate.
+    pub fn reset_all(&self) {
+        self.address_state.reset();
+        self.admin_state.reset();
+        self.carrier_state.reset();
+        self.ipv4_address_state.reset();
+        self.ipv6_address_state.reset();
+        self.oper_state.reset();
+        self.required_for_online.reset();
+    }
+
     pub fn new() -> NetworkdInterfaceStats {
         let labels = vec!["interface_name"];
         NetworkdInterfaceStats {
@@ -424,6 +436,28 @@ impl Pid1Stats {
 }
 
 impl ServiceStats {
+    /// Drop every per-service series so one that vanished (unit removed, transient
+    /// unit garbage-collected) stops being exported instead of reporting its last
+    /// value forever. Called before each repopulate.
+    pub fn reset_all(&self) {
+        self.active_enter_timestamp.reset();
+        self.active_exit_timestamp.reset();
+        self.cpuusage_nsec.reset();
+        self.inactive_exit_timestamp.reset();
+        self.ioread_bytes.reset();
+        self.ioread_operations.reset();
+        self.memory_available.reset();
+        self.memory_current.reset();
+        self.nrestarts.reset();
+        self.processes.reset();
+        self.restart_usec.reset();
+        self.state_change_timestamp.reset();
+        self.status_errno.reset();
+        self.tasks_current.reset();
+        self.timeout_clean_usec.reset();
+        self.watchdog_usec.reset();
+    }
+
     pub fn new() -> ServiceStats {
         let labels = &["service_name"];
         ServiceStats {
@@ -676,6 +710,23 @@ impl UnitStats {
 }
 
 impl TimerPromStats {
+    /// Drop every per-timer series so one that vanished (unit removed, transient
+    /// unit garbage-collected) stops being exported instead of reporting its last
+    /// value forever. Called before each repopulate.
+    pub fn reset_all(&self) {
+        self.accuracy_usec.reset();
+        self.fixed_random_delay.reset();
+        self.last_trigger_usec.reset();
+        self.last_trigger_usec_monotonic.reset();
+        self.next_elapse_usec_monotonic.reset();
+        self.next_elapse_usec_realtime.reset();
+        self.persistent.reset();
+        self.randomized_delay_usec.reset();
+        self.remain_after_elapse.reset();
+        self.service_unit_last_state_change_usec.reset();
+        self.service_unit_last_state_change_usec_monotonic.reset();
+    }
+
     pub fn new() -> TimerPromStats {
         let labels = &["timer_name"];
         TimerPromStats {
@@ -770,6 +821,16 @@ impl UnitFilesPromStats {
 }
 
 impl UnitStatesPromStats {
+    /// Drop every per-unit series so one that vanished (unit removed, transient
+    /// unit garbage-collected) stops being exported instead of reporting its last
+    /// value forever. Called before each repopulate.
+    pub fn reset_all(&self) {
+        self.active_state.reset();
+        self.load_state.reset();
+        self.unhealthy.reset();
+        self.time_in_state_usecs.reset();
+    }
+
     pub fn new() -> UnitStatesPromStats {
         let labels = &["unit_name"];
         UnitStatesPromStats {
@@ -857,6 +918,19 @@ impl DBusPromStats {
 }
 
 impl DBusUserPromStats {
+    /// Drop every per-user series so one that vanished stops being exported.
+    /// Called before each repopulate.
+    pub fn reset_all(&self) {
+        self.bytes_cur.reset();
+        self.bytes_max.reset();
+        self.fds_cur.reset();
+        self.fds_max.reset();
+        self.matches_cur.reset();
+        self.matches_max.reset();
+        self.objects_cur.reset();
+        self.objects_max.reset();
+    }
+
     pub fn new() -> DBusUserPromStats {
         let labels = &["uid"];
         DBusUserPromStats {
@@ -909,6 +983,21 @@ impl DBusUserPromStats {
 }
 
 impl DBusPeerPromStats {
+    /// Drop every per-peer series so one that vanished stops being exported.
+    /// Called before each repopulate.
+    pub fn reset_all(&self) {
+        self.name_objects.reset();
+        self.matches.reset();
+        self.match_bytes.reset();
+        self.reply_objects.reset();
+        self.incoming_bytes.reset();
+        self.incoming_fds.reset();
+        self.outgoing_bytes.reset();
+        self.outgoing_fds.reset();
+        self.activation_request_bytes.reset();
+        self.activation_request_fds.reset();
+    }
+
     pub fn new() -> DBusPeerPromStats {
         let labels = &["peer_id"];
         DBusPeerPromStats {
@@ -1204,6 +1293,85 @@ impl VerifyPromStats {
 }
 
 impl MachinePromStats {
+    /// Drop every per-machine series so one that vanished stops being exported.
+    /// Called before each repopulate.
+    pub fn reset_all(&self) {
+        self.system_state.reset();
+        self.activating_units.reset();
+        self.active_units.reset();
+        self.automount_units.reset();
+        self.device_units.reset();
+        self.failed_units.reset();
+        self.inactive_units.reset();
+        self.jobs_queued.reset();
+        self.loaded_units.reset();
+        self.masked_units.reset();
+        self.mount_units.reset();
+        self.not_found_units.reset();
+        self.path_units.reset();
+        self.scope_units.reset();
+        self.service_units.reset();
+        self.slice_units.reset();
+        self.socket_units.reset();
+        self.target_units.reset();
+        self.timer_units.reset();
+        self.timer_persistent_units.reset();
+        self.timer_remain_after_elapse.reset();
+        self.total_units.reset();
+        self.pid1_cpu_time_kernel.reset();
+        self.pid1_cpu_user_kernel.reset();
+        self.pid1_fd_count.reset();
+        self.pid1_memory_usage_bytes.reset();
+        self.pid1_tasks.reset();
+        self.networkd_managed_interfaces.reset();
+        self.service_active_enter_timestamp.reset();
+        self.service_active_exit_timestamp.reset();
+        self.service_cpuusage_nsec.reset();
+        self.service_inactive_exit_timestamp.reset();
+        self.service_ioread_bytes.reset();
+        self.service_ioread_operations.reset();
+        self.service_memory_available.reset();
+        self.service_memory_current.reset();
+        self.service_nrestarts.reset();
+        self.service_processes.reset();
+        self.service_restart_usec.reset();
+        self.service_state_change_timestamp.reset();
+        self.service_status_errno.reset();
+        self.service_tasks_current.reset();
+        self.service_timeout_clean_usec.reset();
+        self.service_watchdog_usec.reset();
+        self.boot_blame_activation_time_seconds.reset();
+        self.verify_total.reset();
+        self.verify_by_type.reset();
+        self.version_major.reset();
+        self.version_info.reset();
+        self.timer_accuracy_usec.reset();
+        self.timer_fixed_random_delay.reset();
+        self.timer_last_trigger_usec.reset();
+        self.timer_last_trigger_usec_monotonic.reset();
+        self.timer_next_elapse_usec_monotonic.reset();
+        self.timer_next_elapse_usec_realtime.reset();
+        self.timer_stat_persistent.reset();
+        self.timer_randomized_delay_usec.reset();
+        self.timer_stat_remain_after_elapse.reset();
+        self.timer_service_unit_last_state_change_usec.reset();
+        self.timer_service_unit_last_state_change_usec_monotonic
+            .reset();
+        self.unit_state_active_state.reset();
+        self.unit_state_load_state.reset();
+        self.unit_state_unhealthy.reset();
+        self.unit_state_time_in_state_usecs.reset();
+        self.unit_files_generated.reset();
+        self.unit_files_transient.reset();
+        self.units_collection_list_units_ms.reset();
+        self.units_collection_unit_files_ms.reset();
+        self.units_collection_per_unit_loop_ms.reset();
+        self.units_collection_timer_dbus_fetches.reset();
+        self.units_collection_state_dbus_fetches.reset();
+        self.units_collection_service_dbus_fetches.reset();
+        self.varlink_usage.reset();
+    }
+
     pub fn new() -> MachinePromStats {
         let labels = &["machine_name"];
         let svc_labels = &["machine_name", "service_name"];
@@ -1696,6 +1864,7 @@ impl MonitordPromStats {
                 .set(monitord_stats.networkd.managed_interfaces as f64);
 
             // networkd stats - set interface stats
+            self.networkd.interfaces.reset_all();
             for interface in &monitord_stats.networkd.interfaces_state {
                 let labels = &[interface.name.as_str()];
                 self.networkd
@@ -1765,6 +1934,7 @@ impl MonitordPromStats {
         }
 
         // Set services stats
+        self.services.reset_all();
         for (service_name, service_stats) in monitord_stats.units.service_stats.iter() {
             let service_labels = &[service_name.as_str()];
             self.services
@@ -1955,6 +2125,7 @@ impl MonitordPromStats {
 
         // Set timer stats
         if config.timers.enabled {
+            self.timers.reset_all();
             for (timer_name, timer_stats) in monitord_stats.units.timer_stats.iter() {
                 let labels = &[timer_name.as_str()];
                 self.timers
@@ -2006,6 +2177,7 @@ impl MonitordPromStats {
 
         // Set unit states
         if config.units.state_stats {
+            self.unit_states.reset_all();
             for (unit_name, unit_state) in monitord_stats.units.unit_states.iter() {
                 let labels = &[unit_name.as_str()];
                 self.unit_states
@@ -2030,6 +2202,8 @@ impl MonitordPromStats {
         // Set D-Bus stats
         if config.dbus_stats.enabled {
             self.dbus_cgroups.reset_all();
+            self.dbus_users.reset_all();
+            self.dbus_peers.reset_all();
 
             if let Some(dbus) = &monitord_stats.dbus_stats {
                 if let Some(v) = dbus.serial {
@@ -2302,10 +2476,7 @@ impl MonitordPromStats {
 
         // Set machine stats
         if config.machines.enabled {
-            self.machines.unit_files_generated.reset();
-            self.machines.unit_files_transient.reset();
-            self.machines.version_info.reset();
-            self.machines.varlink_usage.reset();
+            self.machines.reset_all();
             for (machine_name, machine_stats) in monitord_stats.machines.iter() {
                 let labels = &[machine_name.as_str()];
                 self.machines
@@ -2678,6 +2849,7 @@ impl MonitordPromStats {
 
         // Set boot blame stats
         if config.boot_blame.enabled {
+            self.boot_blame.activation_time_seconds.reset();
             if let Some(boot_blame) = &monitord_stats.boot_blame {
                 for (unit_name, activation_time) in boot_blame.iter() {
                     self.boot_blame
@@ -2690,6 +2862,7 @@ impl MonitordPromStats {
 
         // Set verify stats
         if config.verify.enabled {
+            self.verify.by_type.reset();
             if let Some(verify) = &monitord_stats.verify_stats {
                 let c = self.verify.total.with_label_values(no_labels);
                 c.reset();
@@ -2758,5 +2931,241 @@ impl MonitordPromStats {
 impl Default for MonitordPromStats {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prometheus_exporter::prometheus;
+
+    /// Label values present for `metric`'s `label` in the default registry.
+    fn label_values(metric: &str, label: &str) -> Vec<String> {
+        prometheus::gather()
+            .iter()
+            .filter(|mf| mf.get_name() == metric)
+            .flat_map(|mf| mf.get_metric().iter())
+            .flat_map(|m| m.get_label().iter())
+            .filter(|l| l.get_name() == label)
+            .map(|l| l.get_value().to_string())
+            .collect()
+    }
+
+    /// Values of every `metric` series in the default registry.
+    fn values(metric: &str) -> Vec<f64> {
+        prometheus::gather()
+            .iter()
+            .filter(|mf| mf.get_name() == metric)
+            .flat_map(|mf| mf.get_metric().iter())
+            .map(|m| m.get_gauge().get_value())
+            .collect()
+    }
+
+    fn sorted(mut v: Vec<String>) -> Vec<String> {
+        v.sort();
+        v
+    }
+
+    // One test: the metrics register in the process-wide default registry, so
+    // MonitordPromStats::new() can only run once per test binary.
+    #[test]
+    fn test_vanished_label_values_are_dropped() {
+        let mut config = monitord::config::Config::default();
+        config.networkd.enabled = true;
+        config.units.state_stats = true;
+        config.timers.enabled = true;
+        config.dbus_stats.enabled = true;
+        config.machines.enabled = true;
+        config.verify.enabled = true;
+        config.boot_blame.enabled = true;
+
+        let mut stats = monitord::MonitordStats::default();
+        for unit in ["keep.service", "run-p1-i1.service"] {
+            stats
+                .units
+                .unit_states
+                .insert(unit.to_string(), monitord::units::UnitStates::default());
+            stats
+                .units
+                .service_stats
+                .insert(unit.to_string(), monitord::units::ServiceStats::default());
+        }
+        for timer in ["keep.timer", "gone.timer"] {
+            stats
+                .units
+                .timer_stats
+                .insert(timer.to_string(), monitord::timer::TimerStats::default());
+        }
+        for name in ["eth0", "veth0"] {
+            stats
+                .networkd
+                .interfaces_state
+                .push(monitord::networkd::InterfaceState {
+                    name: name.to_string(),
+                    ..Default::default()
+                });
+        }
+        let mut dbus = monitord::dbus_stats::DBusStats::default();
+        let mut peers = std::collections::HashMap::new();
+        let mut users = std::collections::HashMap::new();
+        for (uid, peer) in [(0, ":1.1"), (1000, ":1.2")] {
+            peers.insert(
+                peer.to_string(),
+                monitord::dbus_stats::DBusBrokerPeerAccounting {
+                    id: peer.to_string(),
+                    name_objects: Some(1),
+                    ..Default::default()
+                },
+            );
+            users.insert(
+                uid,
+                monitord::dbus_stats::DBusBrokerUserAccounting {
+                    uid,
+                    bytes: Some(monitord::dbus_stats::CurMaxPair::default()),
+                    ..Default::default()
+                },
+            );
+        }
+        dbus.dbus_broker_peer_accounting = Some(peers);
+        dbus.dbus_broker_user_accounting = Some(users);
+        stats.dbus_stats = Some(dbus);
+        let mut verify = monitord::verify::VerifyStats::default();
+        verify.by_type.insert("service".to_string(), 1);
+        verify.by_type.insert("socket".to_string(), 1);
+        stats.verify_stats = Some(verify);
+        stats.boot_blame = Some(
+            [("slow.service", 2.5), ("slower.service", 4.0)]
+                .into_iter()
+                .map(|(u, t)| (u.to_string(), t))
+                .collect(),
+        );
+        for machine in ["keep-ct", "gone-ct"] {
+            let mut m = monitord::MachineStats::default();
+            for unit in ["a.service", "b.service"] {
+                m.units
+                    .unit_states
+                    .insert(unit.to_string(), monitord::units::UnitStates::default());
+                m.units
+                    .service_stats
+                    .insert(unit.to_string(), monitord::units::ServiceStats::default());
+            }
+            m.boot_blame = Some([("a.service".to_string(), 1.0)].into_iter().collect());
+            m.verify_stats = Some(monitord::verify::VerifyStats::default());
+            stats.machines.insert(machine.to_string(), m);
+        }
+
+        let mut prom = MonitordPromStats::new();
+        prom.populate(&config, &stats);
+        assert_eq!(
+            sorted(label_values("monitord_unit_active_state", "unit_name")),
+            vec!["keep.service", "run-p1-i1.service"]
+        );
+        assert_eq!(
+            sorted(label_values(
+                "monitord_networkd_oper_state",
+                "interface_name"
+            )),
+            vec!["eth0", "veth0"]
+        );
+        assert_eq!(
+            sorted(label_values(
+                "monitord_machine_system_state",
+                "machine_name"
+            )),
+            vec!["gone-ct", "keep-ct"]
+        );
+
+        // A transient unit is garbage-collected, a timer, a veth and a
+        // container go away, a D-Bus client disconnects, a broken unit file
+        // gets fixed, a unit leaves the boot blame list and a service inside
+        // the surviving container is removed. A surviving series changes value.
+        stats
+            .units
+            .service_stats
+            .get_mut("keep.service")
+            .unwrap()
+            .nrestarts = 3;
+        stats.boot_blame.as_mut().unwrap().remove("slower.service");
+        let keep_ct = stats.machines.get_mut("keep-ct").unwrap();
+        keep_ct.units.unit_states.remove("b.service");
+        keep_ct.units.service_stats.remove("b.service");
+        stats.units.unit_states.remove("run-p1-i1.service");
+        stats.units.service_stats.remove("run-p1-i1.service");
+        stats.units.timer_stats.remove("gone.timer");
+        stats.networkd.interfaces_state.retain(|i| i.name == "eth0");
+        stats.machines.remove("gone-ct");
+        let dbus = stats.dbus_stats.as_mut().unwrap();
+        dbus.dbus_broker_peer_accounting
+            .as_mut()
+            .unwrap()
+            .remove(":1.2");
+        dbus.dbus_broker_user_accounting
+            .as_mut()
+            .unwrap()
+            .remove(&1000);
+        stats
+            .verify_stats
+            .as_mut()
+            .unwrap()
+            .by_type
+            .remove("socket");
+        prom.populate(&config, &stats);
+
+        for (metric, label, want) in [
+            ("monitord_unit_active_state", "unit_name", "keep.service"),
+            (
+                "monitord_unit_time_in_state_usecs",
+                "unit_name",
+                "keep.service",
+            ),
+            ("monitord_service_nrestarts", "service_name", "keep.service"),
+            (
+                "monitord_timer_last_trigger_usec",
+                "timer_name",
+                "keep.timer",
+            ),
+            ("monitord_networkd_oper_state", "interface_name", "eth0"),
+            ("monitord_dbus_peer_name_objects", "peer_id", ":1.1"),
+            ("monitord_dbus_user_bytes_cur", "uid", "0"),
+            (
+                "monitord_verify_failed_units_by_type",
+                "unit_type",
+                "service",
+            ),
+            ("monitord_machine_system_state", "machine_name", "keep-ct"),
+            (
+                "monitord_machine_unit_state_active_state",
+                "machine_name",
+                "keep-ct",
+            ),
+            (
+                "monitord_machine_unit_state_active_state",
+                "unit_name",
+                "a.service",
+            ),
+            (
+                "monitord_machine_service_nrestarts",
+                "service_name",
+                "a.service",
+            ),
+            (
+                "monitord_machine_verify_failed_units_total",
+                "machine_name",
+                "keep-ct",
+            ),
+            (
+                "monitord_machine_boot_blame_activation_time_seconds",
+                "machine_name",
+                "keep-ct",
+            ),
+            (
+                "monitord_boot_blame_activation_time_seconds",
+                "unit_name",
+                "slow.service",
+            ),
+        ] {
+            assert_eq!(label_values(metric, label), vec![want], "{metric}");
+        }
+        assert_eq!(values("monitord_service_nrestarts"), vec![3.0]);
     }
 }
