@@ -4,6 +4,20 @@ use std::path::PathBuf;
 use anyhow::Result;
 use configparser::ini::Ini;
 
+/// Report metrics left out by default when collecting systemd-report sources
+/// from the CLI: host and hardware identifiers and journal entries, which say
+/// nothing about health but would land in every scrape (and, for the journal,
+/// put log text in label values). The same list monitord's example
+/// monitord.conf ships; see "Default metric denylist" in monitord's README.
+pub const DEFAULT_REPORT_METRIC_BLOCKLIST: &[&str] = &[
+    "io.systemd.Basic.BootID",
+    "io.systemd.Basic.Hostname",
+    "io.systemd.Basic.MachineID",
+    "io.systemd.Basic.SMBIOS",
+    "io.systemd.Basic.TPM2",
+    "io.systemd.Journal.HighPriorityMessage",
+];
+
 /// Load a `monitord::config::Config` from an INI-format `monitord.conf` file.
 pub fn load_from_file(path: &Path) -> Result<monitord::config::Config> {
     let mut ini = Ini::new();
@@ -34,6 +48,8 @@ pub fn build_from_cli(
     per_unit_concurrency: u64,
     varlink: bool,
     varlink_no_fallback: bool,
+    no_report_collect: bool,
+    no_report_serve: bool,
 ) -> monitord::config::Config {
     let mut config = monitord::config::Config::default();
     config.monitord.dbus_address = dbus_address.to_string();
@@ -59,6 +75,17 @@ pub fn build_from_cli(
     // Only meaningful with the master switch on - monitord warns if it is not,
     // and clap's `requires = "varlink"` keeps the CLI from getting there.
     config.varlink.no_fallback = varlink_no_fallback;
+    // systemd-report (systemd v260+). Both are on by default for the exporter:
+    // on older systemd /run/systemd/report is missing, so collecting finds no
+    // sources and serving logs one warning; neither fails a scrape.
+    config.report.collect = !no_report_collect;
+    // monitord's metric blocklist is matched lowercased (the INI parser
+    // lowercases keys), so store it that way.
+    config.report.metric_blocklist = DEFAULT_REPORT_METRIC_BLOCKLIST
+        .iter()
+        .map(|m| m.to_lowercase())
+        .collect();
+    config.report.enabled = !no_report_serve;
     config
 }
 
@@ -296,6 +323,8 @@ output_format = json
             8,     // per_unit_concurrency
             false, // varlink
             false, // varlink_no_fallback
+            false, // no_report_collect
+            false, // no_report_serve
         );
 
         assert_eq!(
@@ -322,6 +351,17 @@ output_format = json
         assert_eq!(config.units.per_unit_concurrency, 8);
         assert!(!config.varlink.enabled);
         assert!(!config.varlink.no_fallback);
+        // systemd-report: collect and serve are on, identifiers blocked
+        assert!(config.report.collect);
+        assert!(config.report.enabled);
+        assert_eq!(
+            config.report.metric_blocklist.len(),
+            DEFAULT_REPORT_METRIC_BLOCKLIST.len()
+        );
+        assert!(config
+            .report
+            .metric_blocklist
+            .contains("io.systemd.basic.machineid"));
     }
 
     #[test]
@@ -345,6 +385,8 @@ output_format = json
             32,   // per_unit_concurrency
             true, // varlink
             true, // varlink_no_fallback
+            true, // no_report_collect
+            true, // no_report_serve
         );
 
         assert_eq!(config.monitord.dbus_address, "unix:path=/custom/bus");
@@ -369,6 +411,8 @@ output_format = json
         assert_eq!(config.units.per_unit_concurrency, 32);
         // --varlink flips the master switch; every collector keeps its
         // default-true section toggle, so all of them may use varlink.
+        assert!(!config.report.collect);
+        assert!(!config.report.enabled);
         assert!(config.varlink.enabled);
         assert!(config.use_varlink(&[config.units.varlink]));
         // --varlink-no-fallback turns a varlink failure into that collector's
