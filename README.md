@@ -291,7 +291,11 @@ such as `io.systemd.Basic`): `source_up`, `source_dropped_metrics` and
 `monitord_report_metric`, labeled by `source` and `metric` (monitord's flat
 key: the metric name without the source prefix, then `.<object>` and
 `.<field>_<value>` parts). Booleans are 0/1. String values (versions, names)
-are not exported.
+are `monitord_report_info{source, metric, value} 1`, one series per string, so
+the numeric gauge keeps one series per metric. Both are reset each scrape, so
+vanished sources, metrics and old string values drop out. The CLI blocklist
+keeps the high-cardinality strings (host IDs, journal entries) out; with `-c`,
+`[report.metrics.blocklist]` is yours to set.
 
 ## systemd-report integration
 
@@ -312,9 +316,16 @@ older systemd (no sources are found, and serving logs one warning):
 - **Serve** (`--no-report-serve` to disable, `[report] enabled` with `-c`):
   the exporter's own health (last run healthy, run and failure counters,
   per-collector timings) is served as the `io.monitord` source, the same
-  metrics the monitord daemon serves. The values come from the last
-  Prometheus scrape, so `io.monitord.lastCollectionTimestamp` shows how fresh
-  they are.
+  metrics the monitord daemon serves.
+
+  **Freshness:** `io.monitord` only refreshes when Prometheus scrapes, unlike
+  the monitord daemon, which refreshes every `daemon_stats_refresh_secs`. On a
+  long scrape interval (or if scraping stops), systemd-report readers see the
+  last scrape's health. Check `io.monitord.lastCollectionTimestamp` to judge
+  how old it is, scrape at least every 60s, and have alerts on
+  `io.monitord.healthy` also fire when that timestamp is stale. On-demand
+  refresh is tracked in
+  [#91](https://github.com/cooperlees/monitord-exporter/issues/91).
 
 Serving needs the socket `/run/systemd/report/io.monitord`. The packaged
 service runs as `nobody`, which can't create it, so install
@@ -430,11 +441,14 @@ Present when the host has systemd-report sources besides `io.systemd.Manager`
 and `io.systemd.Network` (e.g. `systemd-report-basic.socket` enabled):
 
 ```console
-# HELP monitord_report_metric Numeric value passed through from a systemd-report source. metric is monitord's flat key: the metric name without the source prefix, then .<object> and .<field>_<value> parts. Booleans are 0/1; string values are not exported
+# HELP monitord_report_metric Numeric value passed through from a systemd-report source. metric is monitord's flat key: the metric name without the source prefix, then .<object> and .<field>_<value> parts. Booleans are 0/1; strings are in monitord_report_info
 # TYPE monitord_report_metric gauge
 monitord_report_metric{metric="CPUUsage.type_system",source="io.systemd.Basic"} 177191060000000
 monitord_report_metric{metric="CPUUsage.type_user",source="io.systemd.Basic"} 360232390000000
 monitord_report_metric{metric="DiskReadBytes./dev/sda",source="io.systemd.Basic"} 176618894336
+# HELP monitord_report_info Always 1. A string value passed through from a systemd-report source, in the value label; metric is keyed as in monitord_report_metric
+# TYPE monitord_report_info gauge
+monitord_report_info{metric="KernelVersion",source="io.systemd.Basic",value="6.12.4-200.fc41.x86_64"} 1
 # HELP monitord_report_source_up 1 if the systemd-report source answered io.systemd.Metrics.List on the last run
 # TYPE monitord_report_source_up gauge
 monitord_report_source_up{source="io.systemd.Basic"} 1

@@ -187,6 +187,7 @@ struct ReportPromStats {
     dropped_metrics: GaugeVec,
     colliding_metrics: GaugeVec,
     metric: GaugeVec,
+    info: GaugeVec,
 }
 
 #[derive(Debug)]
@@ -1194,8 +1195,14 @@ impl ReportPromStats {
             .unwrap(),
             metric: register_gauge_vec!(
                 "monitord_report_metric",
-                "Numeric value passed through from a systemd-report source. metric is monitord's flat key: the metric name without the source prefix, then .<object> and .<field>_<value> parts. Booleans are 0/1; string values are not exported",
+                "Numeric value passed through from a systemd-report source. metric is monitord's flat key: the metric name without the source prefix, then .<object> and .<field>_<value> parts. Booleans are 0/1; strings are in monitord_report_info",
                 &["source", "metric"],
+            )
+            .unwrap(),
+            info: register_gauge_vec!(
+                "monitord_report_info",
+                "Always 1. A string value passed through from a systemd-report source, in the value label; metric is keyed as in monitord_report_metric",
+                &["source", "metric", "value"],
             )
             .unwrap(),
         }
@@ -1206,6 +1213,7 @@ impl ReportPromStats {
         self.dropped_metrics.reset();
         self.colliding_metrics.reset();
         self.metric.reset();
+        self.info.reset();
     }
 
     /// Reset, then set every source and numeric metric in `report`.
@@ -1215,7 +1223,7 @@ impl ReportPromStats {
             let labels = &[source.as_str()];
             self.up
                 .with_label_values(labels)
-                .set(report_source.up as u64 as f64);
+                .set(if report_source.up { 1.0 } else { 0.0 });
             self.dropped_metrics
                 .with_label_values(labels)
                 .set(report_source.dropped_metrics as f64);
@@ -1226,12 +1234,18 @@ impl ReportPromStats {
             for (key, value) in report_source.metrics.iter() {
                 monitord::report_collector::flat_leaves(key.clone(), value, &mut leaves);
             }
-            // Strings (versions, names, ...) have no numeric value to export.
+            // Numbers go on the gauge; strings (versions, names, ...) become
+            // the value label of an info series so the gauge keeps one series
+            // per metric.
             for (key, value) in leaves {
                 if let Some(number) = value.as_f64() {
                     self.metric
                         .with_label_values(&[source.as_str(), key.as_str()])
                         .set(number);
+                } else if let Some(string) = value.as_str() {
+                    self.info
+                        .with_label_values(&[source.as_str(), key.as_str(), string])
+                        .set(1.0);
                 }
             }
         }
@@ -3184,7 +3198,8 @@ mod tests {
             )),
             vec!["gone-ct", "keep-ct"]
         );
-        // Numeric leaves only: the string KernelVersion and Nested.b.1 are skipped
+        // Numeric leaves on the gauge; the strings KernelVersion and Nested.b.1
+        // are info series instead
         assert_eq!(
             sorted(label_values("monitord_report_metric", "metric")),
             vec![
@@ -3291,6 +3306,15 @@ mod tests {
             assert_eq!(label_values(metric, label), vec![want], "{metric}");
         }
         assert_eq!(values("monitord_service_nrestarts"), vec![3.0]);
+        assert_eq!(
+            sorted(label_values("monitord_report_info", "metric")),
+            vec!["KernelVersion", "Nested.b.1"]
+        );
+        assert_eq!(
+            sorted(label_values("monitord_report_info", "value")),
+            vec!["6.12.4", "x"]
+        );
+        assert_eq!(values("monitord_report_info"), vec![1.0, 1.0]);
         assert_eq!(
             sorted(label_values("monitord_report_metric", "source")),
             vec!["io.systemd.Basic"; 3]

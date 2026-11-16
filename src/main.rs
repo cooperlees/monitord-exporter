@@ -344,11 +344,16 @@ fn main() -> Result<()> {
             Some((served_stats, report_state)) => {
                 let collected = std::mem::take(&mut *rt.block_on(locked_monitord_stats.write()));
                 let had_error = collected.collector_timings.iter().any(|t| !t.success);
+                // Update the counters and the stats under one stats write lock,
+                // taking the locks in the server's order (stats, then state), so
+                // a List never pairs this run's counters with last run's timings.
+                let mut served = rt.block_on(served_stats.write());
                 report_state
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .record_run(&collected.collector_timings, had_error);
-                *rt.block_on(served_stats.write()) = collected;
+                *served = collected;
+                drop(served);
                 served_stats.clone()
             }
             None => locked_monitord_stats,

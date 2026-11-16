@@ -19,12 +19,24 @@ pub const DEFAULT_REPORT_METRIC_BLOCKLIST: &[&str] = &[
 ];
 
 /// Load a `monitord::config::Config` from an INI-format `monitord.conf` file.
+///
+/// `[monitord] daemon` is always forced off: the exporter runs one collection
+/// per scrape, and daemon mode would make `stat_collector` loop forever (and
+/// start a second systemd-report server).
 pub fn load_from_file(path: &Path) -> Result<monitord::config::Config> {
     let mut ini = Ini::new();
     ini.load(path)
         .map_err(|e| anyhow::anyhow!("Failed to load config file {:?}: {}", path, e))?;
-    monitord::config::Config::try_from(ini)
-        .map_err(|e| anyhow::anyhow!("Failed to parse config file {:?}: {}", path, e))
+    // monitord warns that `[report] enabled = true` does nothing without
+    // daemon mode. The exporter serves io.monitord itself, so claim daemon mode
+    // while parsing to skip that false warning, then turn it back off below.
+    if let Ok(Some(true)) = ini.getbool("report", "enabled") {
+        ini.set("monitord", "daemon", Some("true".to_string()));
+    }
+    let mut config = monitord::config::Config::try_from(ini)
+        .map_err(|e| anyhow::anyhow!("Failed to parse config file {:?}: {}", path, e))?;
+    config.monitord.daemon = false;
+    Ok(config)
 }
 
 /// Build a `monitord::config::Config` from the individual CLI arguments (no config file).
@@ -298,6 +310,26 @@ output_format = json
             msg.contains("Failed to parse config file"),
             "unexpected error message: {msg}"
         );
+    }
+
+    #[test]
+    fn test_load_forces_daemon_off() {
+        for report_enabled in [true, false] {
+            let tmp = write_tmp_config(&format!(
+                "[monitord]\ndaemon = true\noutput_format = json\n\n[report]\nenabled = {report_enabled}\n"
+            ));
+            let config = load_from_file(tmp.path()).expect("Failed to load config");
+            assert!(!config.monitord.daemon);
+            assert_eq!(config.report.enabled, report_enabled);
+        }
+        // report enabled without daemon: still parsed, daemon stays off
+        let tmp = write_tmp_config(
+            "[monitord]\noutput_format = json\n\n[report]\nenabled = true\ncollect = true\n",
+        );
+        let config = load_from_file(tmp.path()).expect("Failed to load config");
+        assert!(!config.monitord.daemon);
+        assert!(config.report.enabled);
+        assert!(config.report.collect);
     }
 
     // ── build_from_cli tests ────────────────────────────────────────────────
