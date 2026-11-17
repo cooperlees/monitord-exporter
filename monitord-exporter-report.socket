@@ -1,0 +1,21 @@
+[Unit]
+Description=monitord-exporter systemd-report metrics socket
+Documentation=https://github.com/cooperlees/monitord-exporter#systemd-report-integration
+# /run/systemd/report only exists on systemd 260+
+ConditionPathIsDirectory=/run/systemd/report
+
+[Socket]
+# The filename is the metrics namespace: systemd-report drops any metric not
+# prefixed with it, so keep it io.monitord. That is also the path monitord's
+# own monitord-report.socket uses, so enable only one of the two per host.
+ListenStream=/run/systemd/report/io.monitord
+FileDescriptorName=varlink
+# Read-only health data, same mode as systemd's own report sockets
+SocketMode=0666
+RemoveOnStop=yes
+# systemd creates the socket as root and passes it in, so the exporter can
+# serve it as User=nobody without write access to /run/systemd/report.
+Service=monitord-exporter.service
+
+[Install]
+WantedBy=sockets.target

@@ -50,6 +50,9 @@ monitord-exporter -p 9090 --varlink
 # Prove a host is varlink-clean: no collector may fall back to D-Bus (>= 0.27.1)
 monitord-exporter -p 9090 --varlink --varlink-no-fallback
 
+# Skip systemd-report: don't collect other sources or serve io.monitord (>= 1.1.0)
+monitord-exporter -p 9090 --no-report-collect --no-report-serve
+
 # Load settings from a monitord.conf file (>= 0.19.0)
 monitord-exporter -p 9090 -c /etc/monitord.conf
 
@@ -110,6 +113,8 @@ When `-c` is supplied the exporter reads all monitord settings (services, timers
 | `--varlink` | disabled | Collect via systemd's varlink APIs where available, falling back to D-Bus per collector |
 | `--varlink-no-fallback` | disabled | Forbid every varlink fallback, so a varlink failure fails that collector instead of being served over D-Bus (requires `--varlink`, >= 0.27.1) |
 | `--networkd-state-file-path` | `/run/systemd/netif/links` | Path to networkd link state files |
+| `--no-report-collect` | collect enabled | Don't collect metrics from other systemd-report sources in `/run/systemd/report/` (systemd v260+, >= 1.1.0). See [systemd-report integration](#systemd-report-integration) |
+| `--no-report-serve` | serve enabled | Don't serve the exporter's own health to systemd-report as `io.monitord` (systemd v260+, >= 1.1.0) |
 
 `--varlink` is the master switch only. Each varlink-capable collector also has
 its own `varlink = true|false` key in the `[networkd]`, `[system-state]`,
@@ -277,6 +282,67 @@ Mirrors host metrics per machine/container, labeled by `machine_name`:
 - **units_collection** — per-machine units collector inner timings (`monitord_machine_units_collection_{list_units_ms,unit_files_ms,per_unit_loop_ms,timer_dbus_fetches,state_dbus_fetches,service_dbus_fetches}`)
 - **varlink_usage** — transport that served each collector inside the machine (`monitord_machine_varlink_usage`, labeled by `machine_name` + `collector`). The host-side `machines` series covers enumeration only (`io.systemd.Machine.List` on systemd v257+, machined's D-Bus API before that). Container collection over varlink needs `CAP_SYS_ADMIN` (to enter the container's PID namespace) on top of `CAP_SYS_PTRACE`; without it monitord warns once and falls back to D-Bus for machines.
 
+### systemd-report source metrics (`monitord_report_*`)
+
+On by default from the CLI (`--no-report-collect` turns it off); with `-c` it
+follows `[report] collect`. Per source (labeled by `source`, the socket name
+such as `io.systemd.Basic`): `source_up`, `source_dropped_metrics` and
+`source_colliding_metrics`. Every numeric value a source publishes is
+`monitord_report_metric`, labeled by `source` and `metric` (monitord's flat
+key: the metric name without the source prefix, then `.<object>` and
+`.<field>_<value>` parts). Booleans are 0/1. String values (versions, names)
+are `monitord_report_info{source, metric, value} 1`, one series per string, so
+the numeric gauge keeps one series per metric. Both are reset each scrape, so
+vanished sources, metrics and old string values drop out. The CLI blocklist
+keeps the high-cardinality strings (host IDs, journal entries) out; with `-c`,
+`[report.metrics.blocklist]` is yours to set.
+
+## systemd-report integration
+
+systemd 260+ ships `systemd-report`, which reads metrics from every
+`io.systemd.Metrics` varlink socket in `/run/systemd/report/`. The exporter
+takes part in two ways, both on by default from the CLI and both harmless on
+older systemd (no sources are found, and serving logs one warning):
+
+- **Collect** (`--no-report-collect` to disable, `[report] collect` with `-c`):
+  every other source in `/run/systemd/report/` is read on each scrape and
+  exported as `monitord_report_*`. `io.systemd.Manager` and
+  `io.systemd.Network` are skipped (the units and networkd collectors already
+  cover them), as are `io.systemd.CGroup` and `io.monitord`. From the CLI,
+  host and hardware identifiers and journal entries
+  (`io.systemd.Basic.{BootID,Hostname,MachineID,SMBIOS,TPM2}` and
+  `io.systemd.Journal.HighPriorityMessage`) are never collected; with `-c` use
+  `[report.metrics.blocklist]`, as in monitord's example config.
+- **Serve** (`--no-report-serve` to disable, `[report] enabled` with `-c`):
+  the exporter's own health (last run healthy, run and failure counters,
+  per-collector timings) is served as the `io.monitord` source, the same
+  metrics the monitord daemon serves.
+
+  **Freshness:** `io.monitord` only refreshes when Prometheus scrapes, unlike
+  the monitord daemon, which refreshes every `daemon_stats_refresh_secs`. On a
+  long scrape interval (or if scraping stops), systemd-report readers see the
+  last scrape's health. Check `io.monitord.lastCollectionTimestamp` to judge
+  how old it is, scrape at least every 60s, and have alerts on
+  `io.monitord.healthy` also fire when that timestamp is stale. On-demand
+  refresh is tracked in
+  [#91](https://github.com/cooperlees/monitord-exporter/issues/91).
+
+Serving needs the socket `/run/systemd/report/io.monitord`. The packaged
+service runs as `nobody`, which can't create it, so install
+[monitord-exporter-report.socket](monitord-exporter-report.socket) and let
+systemd pass it in:
+
+```bash
+systemctl enable --now monitord-exporter-report.socket
+systemctl restart monitord-exporter.service
+systemd-report metrics io.monitord
+```
+
+Run as root, the exporter binds the socket itself instead. It is the same
+path monitord's `monitord-report.socket` uses, so only one of monitord or the
+exporter can serve it on a host: whichever starts second logs a warning and
+keeps collecting.
+
 ## Prometheus Scrape Config
 
 ```yaml
@@ -367,6 +433,25 @@ monitord_varlink_usage{collector="networkd"} 1
 monitord_varlink_usage{collector="system_state"} 1
 monitord_varlink_usage{collector="units"} 0
 monitord_varlink_usage{collector="version"} 1
+```
+
+### systemd-report source metrics
+
+Present when the host has systemd-report sources besides `io.systemd.Manager`
+and `io.systemd.Network` (e.g. `systemd-report-basic.socket` enabled):
+
+```console
+# HELP monitord_report_metric Numeric value passed through from a systemd-report source. metric is monitord's flat key: the metric name without the source prefix, then .<object> and .<field>_<value> parts. Booleans are 0/1; strings are in monitord_report_info
+# TYPE monitord_report_metric gauge
+monitord_report_metric{metric="CPUUsage.type_system",source="io.systemd.Basic"} 177191060000000
+monitord_report_metric{metric="CPUUsage.type_user",source="io.systemd.Basic"} 360232390000000
+monitord_report_metric{metric="DiskReadBytes./dev/sda",source="io.systemd.Basic"} 176618894336
+# HELP monitord_report_info Always 1. A string value passed through from a systemd-report source, in the value label; metric is keyed as in monitord_report_metric
+# TYPE monitord_report_info gauge
+monitord_report_info{metric="KernelVersion",source="io.systemd.Basic",value="6.12.4-200.fc41.x86_64"} 1
+# HELP monitord_report_source_up 1 if the systemd-report source answered io.systemd.Metrics.List on the last run
+# TYPE monitord_report_source_up gauge
+monitord_report_source_up{source="io.systemd.Basic"} 1
 ```
 
 ### Boot blame metrics (enabled with `--boot-blame`)

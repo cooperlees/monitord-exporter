@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 
 use anyhow::Result;
@@ -31,6 +32,8 @@ const CONFIG_CONFLICTS: &[&str] = &[
     "per_unit_concurrency",
     "varlink",
     "varlink_no_fallback",
+    "no_report_collect",
+    "no_report_serve",
 ];
 
 /// Clap CLI Args struct with metadata in help output
@@ -129,6 +132,15 @@ struct Cli {
     /// prove a box is varlink-clean. Requires --varlink.
     #[clap(long, requires = "varlink", conflicts_with = "config")]
     varlink_no_fallback: bool,
+    /// Don't collect metrics from other systemd-report sources in
+    /// /run/systemd/report/ (systemd v260+). Host and hardware identifiers
+    /// and journal entries are never collected from the CLI.
+    #[clap(long, conflicts_with = "config")]
+    no_report_collect: bool,
+    /// Don't serve the exporter's own health to systemd-report as the
+    /// io.monitord source on /run/systemd/report/io.monitord (systemd v260+).
+    #[clap(long, conflicts_with = "config")]
+    no_report_serve: bool,
 }
 
 /// `dbus-daemon --version` prints a single line like "D-Bus Message Bus
@@ -282,8 +294,37 @@ fn main() -> Result<()> {
             args.per_unit_concurrency,
             args.varlink,
             args.varlink_no_fallback,
+            args.no_report_collect,
+            args.no_report_serve,
         )
     };
+
+    // Serve our own health to systemd-report. monitord only starts this server
+    // itself in daemon mode, and the exporter runs one-shot collections per
+    // scrape, so start it here with stats and counters kept across scrapes.
+    // It answers from the last scrape's stats; io.monitord.lastCollectionTimestamp
+    // shows how old they are.
+    let report_server = if monitord_config.report.enabled {
+        let served_stats = Arc::new(RwLock::new(monitord::MonitordStats::default()));
+        let report_state = Arc::new(Mutex::new(monitord::report::ReportState::default()));
+        match monitord::report::spawn_server(
+            PathBuf::from(monitord::report::REPORT_DIR),
+            served_stats.clone(),
+            report_state.clone(),
+        ) {
+            Ok(_) => Some((served_stats, report_state)),
+            Err(err) => {
+                error!(
+                    "Unable to start the systemd-report server thread: {:?}",
+                    err
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let mut cached_dbus_connection: Option<zbus::Connection> = None;
     loop {
         let guard = exporter.wait_request();
@@ -296,10 +337,32 @@ fn main() -> Result<()> {
                 cached_dbus_connection.take(),
             ))
             .map_err(anyhow::Error::from)?;
-        let monitord_stats = rt.block_on(locked_monitord_stats.read());
+        // Hand the finished stats to the systemd-report server, if any. Moved,
+        // not cloned (MonitordStats isn't Clone), and only once the run is
+        // done, so the server never answers from a half-filled run.
+        let stats_lock = match &report_server {
+            Some((served_stats, report_state)) => {
+                let collected = std::mem::take(&mut *rt.block_on(locked_monitord_stats.write()));
+                let had_error = collected.collector_timings.iter().any(|t| !t.success);
+                // Update the counters and the stats under one stats write lock,
+                // taking the locks in the server's order (stats, then state), so
+                // a List never pairs this run's counters with last run's timings.
+                let mut served = rt.block_on(served_stats.write());
+                report_state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .record_run(&collected.collector_timings, had_error);
+                *served = collected;
+                drop(served);
+                served_stats.clone()
+            }
+            None => locked_monitord_stats,
+        };
+        let monitord_stats = rt.block_on(stats_lock.read());
         debug!("Stats collected: {:?}", monitord_stats);
         // Convert monitord stats into prometheus objects
         prom_metrics.populate(&monitord_config, &monitord_stats);
+        drop(monitord_stats);
         drop(guard);
         info!("Stats refreshed and served");
     }

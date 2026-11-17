@@ -1,6 +1,6 @@
 [package]
 name = "monitord-exporter"
-version = "1.0.1"
+version = "1.1.0"
 authors = ["Cooper Ry Lees <me@cooperlees.com>"]
 license = "GPL-2.0-or-later"
 readme = "README.md"
@@ -15,7 +15,7 @@ categories = ["network-programming", "os::linux-apis"]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 configparser = { version = "3.1.0", features = ["indexmap"] }
-monitord = "1.0.0"
+monitord = "1.1.0"
 opentelemetry = { version = "0.33", optional = true }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["grpc-tonic", "trace"], optional = true }
 opentelemetry_sdk = { version = "0.33", features = ["rt-tokio", "experimental_trace_batch_span_processor_with_async_runtime"], optional = true }
@@ -38,6 +38,8 @@ default = []
 otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", "dep:tonic", "dep:tracing-opentelemetry"]
 
 [dev-dependencies]
+# Already in the tree via monitord; only the tests build report values with it
+serde_json = "1"
 tempfile = "3"
 
 [profile]

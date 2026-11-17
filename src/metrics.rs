@@ -179,6 +179,17 @@ struct VarlinkUsagePromStats {
     usage: GaugeVec,
 }
 
+/// Metrics passed through from other systemd-report sources
+/// (`[report] collect`), see `monitord::report_collector`.
+#[derive(Debug)]
+struct ReportPromStats {
+    up: GaugeVec,
+    dropped_metrics: GaugeVec,
+    colliding_metrics: GaugeVec,
+    metric: GaugeVec,
+    info: GaugeVec,
+}
+
 #[derive(Debug)]
 struct CollectionStats {
     stat_collection_run_time_ms: GaugeVec,
@@ -306,6 +317,7 @@ pub struct MonitordPromStats {
     collector_timings: CollectorTimingPromStats,
     units_collection: UnitsCollectionTimingsPromStats,
     varlink_usage: VarlinkUsagePromStats,
+    report: ReportPromStats,
 }
 
 /// Collector name / transport pairs in the order monitord's flat JSON emits
@@ -1159,6 +1171,87 @@ impl VarlinkUsagePromStats {
     }
 }
 
+impl ReportPromStats {
+    pub fn new() -> ReportPromStats {
+        let labels = &["source"];
+        ReportPromStats {
+            up: register_gauge_vec!(
+                "monitord_report_source_up",
+                "1 if the systemd-report source answered io.systemd.Metrics.List on the last run",
+                labels,
+            )
+            .unwrap(),
+            dropped_metrics: register_gauge_vec!(
+                "monitord_report_source_dropped_metrics",
+                "Metrics the systemd-report source returned but were dropped (bad name, no source prefix, or past the per-source cap)",
+                labels,
+            )
+            .unwrap(),
+            colliding_metrics: register_gauge_vec!(
+                "monitord_report_source_colliding_metrics",
+                "Metrics from the systemd-report source left out because their key was already taken",
+                labels,
+            )
+            .unwrap(),
+            metric: register_gauge_vec!(
+                "monitord_report_metric",
+                "Numeric value passed through from a systemd-report source. metric is monitord's flat key: the metric name without the source prefix, then .<object> and .<field>_<value> parts. Booleans are 0/1; strings are in monitord_report_info",
+                &["source", "metric"],
+            )
+            .unwrap(),
+            info: register_gauge_vec!(
+                "monitord_report_info",
+                "Always 1. A string value passed through from a systemd-report source, in the value label; metric is keyed as in monitord_report_metric",
+                &["source", "metric", "value"],
+            )
+            .unwrap(),
+        }
+    }
+
+    pub fn reset_all(&self) {
+        self.up.reset();
+        self.dropped_metrics.reset();
+        self.colliding_metrics.reset();
+        self.metric.reset();
+        self.info.reset();
+    }
+
+    /// Reset, then set every source and numeric metric in `report`.
+    fn populate(&self, report: &monitord::report_collector::ReportStats) {
+        self.reset_all();
+        for (source, report_source) in report.iter() {
+            let labels = &[source.as_str()];
+            self.up
+                .with_label_values(labels)
+                .set(if report_source.up { 1.0 } else { 0.0 });
+            self.dropped_metrics
+                .with_label_values(labels)
+                .set(report_source.dropped_metrics as f64);
+            self.colliding_metrics
+                .with_label_values(labels)
+                .set(report_source.colliding_metrics as f64);
+            let mut leaves = Vec::new();
+            for (key, value) in report_source.metrics.iter() {
+                monitord::report_collector::flat_leaves(key.clone(), value, &mut leaves);
+            }
+            // Numbers go on the gauge; strings (versions, names, ...) become
+            // the value label of an info series so the gauge keeps one series
+            // per metric.
+            for (key, value) in leaves {
+                if let Some(number) = value.as_f64() {
+                    self.metric
+                        .with_label_values(&[source.as_str(), key.as_str()])
+                        .set(number);
+                } else if let Some(string) = value.as_str() {
+                    self.info
+                        .with_label_values(&[source.as_str(), key.as_str(), string])
+                        .set(1.0);
+                }
+            }
+        }
+    }
+}
+
 impl CollectionStats {
     pub fn new() -> CollectionStats {
         CollectionStats {
@@ -1844,6 +1937,7 @@ impl MonitordPromStats {
             collector_timings: CollectorTimingPromStats::new(),
             units_collection: UnitsCollectionTimingsPromStats::new(),
             varlink_usage: VarlinkUsagePromStats::new(),
+            report: ReportPromStats::new(),
         }
     }
 
@@ -2876,6 +2970,16 @@ impl MonitordPromStats {
             }
         }
 
+        // Set metrics passed through from other systemd-report sources. Reset
+        // even if this run has none (the collector failed) so vanished sources
+        // and metrics drop out rather than serve stale values.
+        if config.report.collect {
+            match &monitord_stats.report {
+                Some(report) => self.report.populate(report),
+                None => self.report.reset_all(),
+            }
+        }
+
         // Set stat collection run time
         self.collection
             .stat_collection_run_time_ms
@@ -2978,8 +3082,28 @@ mod tests {
         config.machines.enabled = true;
         config.verify.enabled = true;
         config.boot_blame.enabled = true;
+        config.report.collect = true;
 
         let mut stats = monitord::MonitordStats::default();
+        let mut report = monitord::report_collector::ReportStats::new();
+        for source in ["io.systemd.Basic", "io.systemd.Gone"] {
+            let mut report_source = monitord::report_collector::ReportSource {
+                up: true,
+                ..Default::default()
+            };
+            report_source
+                .metrics
+                .insert("CPUUsage.type_user".to_string(), 42.into());
+            report_source
+                .metrics
+                .insert("KernelVersion".to_string(), "6.12.4".into());
+            report_source.metrics.insert(
+                "Nested".to_string(),
+                serde_json::json!({"a": 1, "b": [2, "x"]}),
+            );
+            report.insert(source.to_string(), report_source);
+        }
+        stats.report = Some(report);
         for unit in ["keep.service", "run-p1-i1.service"] {
             stats
                 .units
@@ -3074,6 +3198,19 @@ mod tests {
             )),
             vec!["gone-ct", "keep-ct"]
         );
+        // Numeric leaves on the gauge; the strings KernelVersion and Nested.b.1
+        // are info series instead
+        assert_eq!(
+            sorted(label_values("monitord_report_metric", "metric")),
+            vec![
+                "CPUUsage.type_user",
+                "CPUUsage.type_user",
+                "Nested.a",
+                "Nested.a",
+                "Nested.b.0",
+                "Nested.b.0",
+            ]
+        );
 
         // A transient unit is garbage-collected, a timer, a veth and a
         // container go away, a D-Bus client disconnects, a broken unit file
@@ -3094,6 +3231,7 @@ mod tests {
         stats.units.timer_stats.remove("gone.timer");
         stats.networkd.interfaces_state.retain(|i| i.name == "eth0");
         stats.machines.remove("gone-ct");
+        stats.report.as_mut().unwrap().remove("io.systemd.Gone");
         let dbus = stats.dbus_stats.as_mut().unwrap();
         dbus.dbus_broker_peer_accounting
             .as_mut()
@@ -3163,9 +3301,27 @@ mod tests {
                 "unit_name",
                 "slow.service",
             ),
+            ("monitord_report_source_up", "source", "io.systemd.Basic"),
         ] {
             assert_eq!(label_values(metric, label), vec![want], "{metric}");
         }
         assert_eq!(values("monitord_service_nrestarts"), vec![3.0]);
+        assert_eq!(
+            sorted(label_values("monitord_report_info", "metric")),
+            vec!["KernelVersion", "Nested.b.1"]
+        );
+        assert_eq!(
+            sorted(label_values("monitord_report_info", "value")),
+            vec!["6.12.4", "x"]
+        );
+        assert_eq!(values("monitord_report_info"), vec![1.0, 1.0]);
+        assert_eq!(
+            sorted(label_values("monitord_report_metric", "source")),
+            vec!["io.systemd.Basic"; 3]
+        );
+        assert_eq!(
+            sorted(label_values("monitord_report_metric", "metric")),
+            vec!["CPUUsage.type_user", "Nested.a", "Nested.b.0"]
+        );
     }
 }
